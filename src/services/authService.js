@@ -1,19 +1,6 @@
 import { getSupabaseClient } from './supabaseClient';
 
-const DEMO_USER_KEY = 'classpulse_demo_user';
-
 export async function getCurrentUser() {
-  // 1. Check local demo session
-  try {
-    const rawDemo = localStorage.getItem(DEMO_USER_KEY);
-    if (rawDemo) {
-      return JSON.parse(rawDemo);
-    }
-  } catch (e) {
-    console.warn('Error reading demo user:', e);
-  }
-
-  // 2. Check Supabase auth session
   const supabase = getSupabaseClient();
   if (!supabase) return null;
 
@@ -32,9 +19,6 @@ export async function signInWithGoogle() {
   if (!supabase) {
     throw new Error('Supabase client is not available. Please verify credentials.');
   }
-
-  // Clear demo session if signing in with Google
-  localStorage.removeItem(DEMO_USER_KEY);
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -55,10 +39,8 @@ export async function signInWithEmail(email, password) {
     throw new Error('Supabase client is not available.');
   }
 
-  localStorage.removeItem(DEMO_USER_KEY);
-
   const { data, error } = await supabase.auth.signInWithPassword({
-    email,
+    email: email.trim(),
     password
   });
 
@@ -72,39 +54,44 @@ export async function signUpWithEmail(email, password, fullName) {
     throw new Error('Supabase client is not available.');
   }
 
-  localStorage.removeItem(DEMO_USER_KEY);
-
   const { data, error } = await supabase.auth.signUp({
-    email,
+    email: email.trim(),
     password,
     options: {
       data: {
-        full_name: fullName
+        full_name: fullName.trim()
       }
     }
   });
 
   if (error) throw error;
-  return data.user;
+
+  return {
+    user: data.user,
+    session: data.session,
+    needsConfirmation: !data.session
+  };
 }
 
-export function loginAsDemo(customName = 'Dr. Evelyn Reed', email = 'faculty@classpulse.ai') {
-  const demoUser = {
-    id: 'demo-faculty-' + Date.now(),
-    email,
-    user_metadata: {
-      full_name: customName,
-      role: 'Faculty Instructor',
-      avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
-    },
-    isDemo: true
-  };
-  localStorage.setItem(DEMO_USER_KEY, JSON.stringify(demoUser));
-  return demoUser;
+export async function resendConfirmationEmail(email) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error('Supabase client is not available.');
+  }
+
+  const { data, error } = await supabase.auth.resend({
+    type: 'signup',
+    email: email.trim(),
+    options: {
+      emailRedirectTo: window.location.origin
+    }
+  });
+
+  if (error) throw error;
+  return data;
 }
 
 export async function signOutUser() {
-  localStorage.removeItem(DEMO_USER_KEY);
   const supabase = getSupabaseClient();
   if (supabase) {
     try {
@@ -121,13 +108,7 @@ export function onAuthStateChange(callback) {
   if (!supabase) return () => {};
 
   const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    if (session?.user) {
-      callback(session.user);
-    } else {
-      // Check if demo user exists
-      const demo = localStorage.getItem(DEMO_USER_KEY);
-      callback(demo ? JSON.parse(demo) : null);
-    }
+    callback(session?.user || null);
   });
 
   return () => {

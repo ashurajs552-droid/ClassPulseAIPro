@@ -193,8 +193,8 @@ export default function App() {
 
       {/* Main View Router */}
       <main style={{ flex: 1 }}>
-        {/* 1. Landing Page (Overview) */}
-        {activeTab === 'overview' && (
+        {/* 1. Landing Page (Overview - Public entry only, hidden after login) */}
+        {!user && activeTab === 'overview' && (
           <AppleLandingPage
             onLaunchCamera={() => handleGuardedNavigation('scanner')}
             onRegisterStudent={() => handleGuardedNavigation('enrollment')}
@@ -208,7 +208,7 @@ export default function App() {
         )}
 
         {/* 2. Intelligence Dashboard (With stats & graphs) */}
-        {activeTab === 'dashboard' && (
+        {(activeTab === 'dashboard' || (user && activeTab === 'overview')) && (
           <Dashboard
             user={user}
             students={students}
@@ -237,6 +237,7 @@ export default function App() {
         {activeTab === 'sessions' && (
           <SessionManager
             onNavigateToScanner={() => setActiveTab('scanner')}
+            user={user}
           />
         )}
 

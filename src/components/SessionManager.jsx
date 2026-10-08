@@ -25,7 +25,7 @@ import {
   createNewSession 
 } from '../services/sessionService';
 
-export default function SessionManager({ onNavigateToScanner }) {
+export default function SessionManager({ onNavigateToScanner, user }) {
   const [sessions, setSessions] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -44,8 +44,8 @@ export default function SessionManager({ onNavigateToScanner }) {
 
   // Create form state
   const [newSessionName, setNewSessionName] = useState('');
-  const [newDepartment, setNewDepartment] = useState('Computer Science');
-  const [newInstructor, setNewInstructor] = useState('Dr. Evelyn Reed');
+  const [newDepartment, setNewDepartment] = useState('');
+  const [newInstructor, setNewInstructor] = useState(user?.user_metadata?.full_name || '');
   const [newNotes, setNewNotes] = useState('');
 
   useEffect(() => {
@@ -59,8 +59,8 @@ export default function SessionManager({ onNavigateToScanner }) {
     setEditingSession(sess);
     setEditName(sess.name);
     setEditDate(sess.date || new Date().toISOString().slice(0, 10));
-    setEditInstructor(sess.instructor || 'Dr. Evelyn Reed');
-    setEditDepartment(sess.department || 'Computer Science');
+    setEditInstructor(sess.instructor || '');
+    setEditDepartment(sess.department || '');
     setEditNotes(sess.notes || '');
   };
 
@@ -508,7 +508,7 @@ export default function SessionManager({ onNavigateToScanner }) {
                   className="input-field"
                   value={editInstructor}
                   onChange={(e) => setEditInstructor(e.target.value)}
-                  placeholder="Dr. Evelyn Reed"
+                  placeholder="e.g. Professor / Instructor Name"
                 />
               </div>
 
@@ -613,7 +613,7 @@ export default function SessionManager({ onNavigateToScanner }) {
                     className="input-field"
                     value={newInstructor}
                     onChange={(e) => setNewInstructor(e.target.value)}
-                    placeholder="Dr. Evelyn Reed"
+                    placeholder="e.g. Professor / Instructor Name"
                   />
                 </div>
               </div>

@@ -4,17 +4,18 @@ import {
   Mail, 
   Lock, 
   User, 
-  Sparkles, 
   AlertCircle, 
   CheckCircle2, 
   ShieldCheck,
-  ArrowRight
+  ArrowRight,
+  Send,
+  HelpCircle
 } from 'lucide-react';
 import { 
   signInWithGoogle, 
   signInWithEmail, 
-  signUpWithEmail, 
-  loginAsDemo 
+  signUpWithEmail,
+  resendConfirmationEmail
 } from '../services/authService';
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
@@ -23,20 +24,23 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+  const [isUnconfirmedEmail, setIsUnconfirmedEmail] = useState(false);
 
   if (!isOpen) return null;
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMsg(null);
+    setIsUnconfirmedEmail(false);
     try {
       await signInWithGoogle();
       // Browser will redirect to Google OAuth
     } catch (err) {
       console.warn('Google Auth Error:', err);
-      setErrorMsg(err.message || 'Google OAuth failed to initialize. You can also sign in with email or use instant Demo access.');
+      setErrorMsg(err.message || 'Google OAuth failed to initialize. Please verify Google provider is enabled in Supabase.');
       setLoading(false);
     }
   };
@@ -51,23 +55,29 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
+    setIsUnconfirmedEmail(false);
 
     try {
       if (isSignUp) {
-        if (!fullName) {
+        if (!fullName.trim()) {
           setErrorMsg('Please enter your full name.');
           setLoading(false);
           return;
         }
-        const user = await signUpWithEmail(email, password, fullName);
-        setSuccessMsg('Account registered successfully! Logging you in...');
-        setTimeout(() => {
-          if (onAuthSuccess) onAuthSuccess(user);
-          onClose();
-        }, 800);
+        const res = await signUpWithEmail(email, password, fullName);
+        if (res.needsConfirmation) {
+          setSuccessMsg(`Account created! A confirmation link was sent to ${email}. Please confirm your email in your inbox to sign in.`);
+          setIsSignUp(false);
+        } else {
+          setSuccessMsg('Account registered successfully! Redirecting to dashboard...');
+          setTimeout(() => {
+            if (onAuthSuccess) onAuthSuccess(res.user);
+            onClose();
+          }, 800);
+        }
       } else {
         const user = await signInWithEmail(email, password);
-        setSuccessMsg('Signed in successfully!');
+        setSuccessMsg('Signed in successfully! Loading your dashboard...');
         setTimeout(() => {
           if (onAuthSuccess) onAuthSuccess(user);
           onClose();
@@ -75,21 +85,35 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
       }
     } catch (err) {
       console.error('Auth Error:', err);
-      setErrorMsg(err.message || 'Authentication failed. Please verify credentials or use Demo Access.');
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('email not confirmed')) {
+        setIsUnconfirmedEmail(true);
+        setErrorMsg('Email not confirmed. Please check your email inbox for the Supabase confirmation link.');
+      } else if (msg.toLowerCase().includes('invalid login credentials')) {
+        setErrorMsg('Invalid email or password. Please verify your credentials or create a new account.');
+      } else {
+        setErrorMsg(msg || 'Authentication failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDemoLogin = () => {
-    setLoading(true);
-    const demoUser = loginAsDemo();
-    setSuccessMsg('Welcome, Dr. Evelyn Reed (Demo Faculty)! Loading dashboard...');
-    setTimeout(() => {
-      setLoading(false);
-      if (onAuthSuccess) onAuthSuccess(demoUser);
-      onClose();
-    }, 600);
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      setErrorMsg('Please enter your email above to resend confirmation.');
+      return;
+    }
+    setResending(true);
+    try {
+      await resendConfirmationEmail(email);
+      setSuccessMsg(`Confirmation email resent to ${email}! Please check your inbox and spam folder.`);
+      setErrorMsg(null);
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to resend confirmation email.');
+    } finally {
+      setResending(false);
+    }
   };
 
   return (
@@ -99,7 +123,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.82)',
+      backgroundColor: 'rgba(0, 0, 0, 0.85)',
       backdropFilter: 'blur(16px)',
       WebkitBackdropFilter: 'blur(16px)',
       display: 'flex',
@@ -115,7 +139,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         border: '1px solid rgba(255, 255, 255, 0.12)',
         borderRadius: '24px',
         boxShadow: '0 24px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05)',
-        padding: '2rem 1.75rem',
+        padding: '2.25rem 2rem',
         position: 'relative'
       }}>
         {/* Close Button */}
@@ -159,10 +183,12 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
           </div>
 
           <h3 style={{ fontSize: '1.4rem', fontWeight: 600, color: '#ffffff', letterSpacing: '-0.02em', marginBottom: '0.35rem' }}>
-            {isSignUp ? 'Create an Account' : 'Sign in to ClassPulse AI Pro'}
+            {isSignUp ? 'Create Faculty Account' : 'Sign in to ClassPulse AI Pro'}
           </h3>
           <p style={{ fontSize: '0.84rem', color: '#86868b' }}>
-            Enter your credentials or continue with Google to access the dashboard
+            {isSignUp 
+              ? 'Register with your institutional email to access the biometric dashboard' 
+              : 'Sign in to access your attendance intelligence dashboard'}
           </p>
         </div>
 
@@ -214,31 +240,71 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
           <span style={{ flex: 1, height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.08)' }} />
         </div>
 
-        {/* Error / Success Messages */}
+        {/* Error Message & Email Unconfirmed Recovery */}
         {errorMsg && (
           <div style={{
-            padding: '0.65rem 0.85rem',
-            borderRadius: '10px',
+            padding: '0.75rem 0.95rem',
+            borderRadius: '12px',
             backgroundColor: 'rgba(239, 68, 68, 0.12)',
-            border: '1px solid rgba(239, 68, 68, 0.25)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
             color: '#f87171',
             fontSize: '0.8rem',
+            marginBottom: '1rem',
             display: 'flex',
-            alignItems: 'center',
-            gap: '0.45rem',
-            marginBottom: '1rem'
+            flexDirection: 'column',
+            gap: '0.5rem'
           }}>
-            <AlertCircle size={15} />
-            <span>{errorMsg}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <AlertCircle size={15} style={{ flexShrink: 0 }} />
+              <span>{errorMsg}</span>
+            </div>
+
+            {isUnconfirmedEmail && (
+              <div style={{
+                marginTop: '0.25rem',
+                paddingTop: '0.5rem',
+                borderTop: '1px solid rgba(239, 68, 68, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '0.5rem'
+              }}>
+                <span style={{ fontSize: '0.74rem', color: '#fca5a5' }}>
+                  Didn't receive the email?
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResendConfirmation}
+                  disabled={resending}
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.2)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    color: '#ffffff',
+                    padding: '0.3rem 0.65rem',
+                    borderRadius: 'var(--radius-pill)',
+                    fontSize: '0.74rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem'
+                  }}
+                >
+                  <Send size={12} />
+                  <span>{resending ? 'Sending...' : 'Resend Link'}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
+        {/* Success Message */}
         {successMsg && (
           <div style={{
-            padding: '0.65rem 0.85rem',
-            borderRadius: '10px',
+            padding: '0.75rem 0.95rem',
+            borderRadius: '12px',
             backgroundColor: 'rgba(16, 185, 129, 0.12)',
-            border: '1px solid rgba(16, 185, 129, 0.25)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
             color: '#34d399',
             fontSize: '0.8rem',
             display: 'flex',
@@ -246,7 +312,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
             gap: '0.45rem',
             marginBottom: '1rem'
           }}>
-            <CheckCircle2 size={15} />
+            <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
             <span>{successMsg}</span>
           </div>
         )}
@@ -262,7 +328,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                 <User size={15} color="#71717a" style={{ position: 'absolute', left: '12px', top: '13px' }} />
                 <input
                   type="text"
-                  placeholder="Prof. Evelyn Reed"
+                  placeholder="Your Full Name"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   style={{
@@ -282,13 +348,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', color: '#a1a1a6', marginBottom: '0.35rem' }}>
-              Academic Email
+              Academic / Work Email
             </label>
             <div style={{ position: 'relative' }}>
               <Mail size={15} color="#71717a" style={{ position: 'absolute', left: '12px', top: '13px' }} />
               <input
                 type="email"
-                placeholder="faculty@university.edu"
+                placeholder="faculty@institution.edu"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 style={{
@@ -342,13 +408,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         </form>
 
         {/* Toggle between Sign In and Sign Up */}
-        <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.8rem', color: '#86868b' }}>
+        <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.8rem', color: '#86868b' }}>
           {isSignUp ? (
             <span>
               Already have an account?{' '}
               <button
                 type="button"
-                onClick={() => { setIsSignUp(false); setErrorMsg(null); }}
+                onClick={() => { setIsSignUp(false); setErrorMsg(null); setIsUnconfirmedEmail(false); }}
                 style={{ background: 'none', border: 'none', color: '#2997ff', cursor: 'pointer', fontWeight: 500 }}
               >
                 Sign In
@@ -359,44 +425,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
               Need an educator account?{' '}
               <button
                 type="button"
-                onClick={() => { setIsSignUp(true); setErrorMsg(null); }}
+                onClick={() => { setIsSignUp(true); setErrorMsg(null); setIsUnconfirmedEmail(false); }}
                 style={{ background: 'none', border: 'none', color: '#2997ff', cursor: 'pointer', fontWeight: 500 }}
               >
                 Create Account
               </button>
             </span>
           )}
-        </div>
-
-        {/* 1-Click Demo Access for Instant Evaluation */}
-        <div style={{
-          marginTop: '1.25rem',
-          paddingTop: '1.1rem',
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          textAlign: 'center'
-        }}>
-          <button
-            type="button"
-            onClick={handleDemoLogin}
-            disabled={loading}
-            style={{
-              width: '100%',
-              padding: '0.55rem',
-              borderRadius: 'var(--radius-pill)',
-              backgroundColor: 'rgba(255, 255, 255, 0.06)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              color: '#d1d1d6',
-              fontSize: '0.82rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.45rem',
-              cursor: 'pointer'
-            }}
-          >
-            <Sparkles size={14} color="#f59e0b" />
-            <span>Instant Demo Access (Dr. Evelyn Reed)</span>
-          </button>
         </div>
 
       </div>

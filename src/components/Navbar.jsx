@@ -94,30 +94,29 @@ export default function Navbar({
           borderRadius: 'var(--radius-pill)',
           border: '1px solid rgba(255, 255, 255, 0.08)'
         }}>
-          {/* Public or Switchable Landing Page */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('overview')}
-            style={{
-              backgroundColor: activeTab === 'overview' ? 'rgba(255, 255, 255, 0.14)' : 'transparent',
-              color: activeTab === 'overview' ? '#ffffff' : '#86868b',
-              padding: '0.4rem 0.8rem',
-              fontSize: '0.8rem',
-              borderRadius: 'var(--radius-pill)',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 500,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.35rem',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <Globe size={13} />
-            <span>Overview</span>
-          </button>
-
-          {isAuthenticated ? (
+          {!isAuthenticated ? (
+            /* Public Landing Page Link (Hidden after login) */
+            <button
+              type="button"
+              onClick={() => setActiveTab('overview')}
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.14)',
+                color: '#ffffff',
+                padding: '0.4rem 0.85rem',
+                fontSize: '0.8rem',
+                borderRadius: 'var(--radius-pill)',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: 500,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem'
+              }}
+            >
+              <Globe size={13} />
+              <span>Overview</span>
+            </button>
+          ) : (
             <>
               {/* Dashboard */}
               <button
@@ -234,7 +233,7 @@ export default function Navbar({
                 <span>Records</span>
               </button>
             </>
-          ) : null}
+          )}
         </nav>
 
         {/* Right Controls: Auth Actions & Settings */}

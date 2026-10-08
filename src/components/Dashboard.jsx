@@ -43,16 +43,35 @@ export default function Dashboard({
   // Calculate phone alerts count across sessions
   const totalPhoneAlerts = sessions.reduce((acc, sess) => acc + (sess.phoneAlerts?.length || 0), 0);
 
-  // Calculate dominant emotion
+  // Dynamically compute emotion distribution from real attendance records
+  const totalRecs = attendanceRecords.length;
+  const rawEmotionCounts = { neutral: 0, happy: 0, surprised: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0 };
+  
+  if (totalRecs > 0) {
+    attendanceRecords.forEach(r => {
+      const emo = (r.dominant_emotion || 'neutral').toLowerCase();
+      if (rawEmotionCounts[emo] !== undefined) {
+        rawEmotionCounts[emo] += 1;
+      } else {
+        rawEmotionCounts.neutral += 1;
+      }
+    });
+  }
+
   const emotionAggregates = {
-    neutral: 76,
-    happy: 14,
-    surprised: 5,
-    sad: 2,
-    angry: 1,
-    fearful: 1,
-    disgusted: 1
+    neutral: totalRecs > 0 ? Math.round((rawEmotionCounts.neutral / totalRecs) * 100) : 0,
+    happy: totalRecs > 0 ? Math.round((rawEmotionCounts.happy / totalRecs) * 100) : 0,
+    surprised: totalRecs > 0 ? Math.round((rawEmotionCounts.surprised / totalRecs) * 100) : 0,
+    sad: totalRecs > 0 ? Math.round((rawEmotionCounts.sad / totalRecs) * 100) : 0,
+    angry: totalRecs > 0 ? Math.round((rawEmotionCounts.angry / totalRecs) * 100) : 0,
+    fearful: totalRecs > 0 ? Math.round((rawEmotionCounts.fearful / totalRecs) * 100) : 0,
+    disgusted: totalRecs > 0 ? Math.round((rawEmotionCounts.disgusted / totalRecs) * 100) : 0,
   };
+
+  const dominantEmotionEntry = Object.entries(emotionAggregates).sort((a, b) => b[1] - a[1])[0];
+  const dominantEmotionLabel = totalRecs > 0 
+    ? `${dominantEmotionEntry[0].charAt(0).toUpperCase() + dominantEmotionEntry[0].slice(1)} (${dominantEmotionEntry[1]}%)` 
+    : 'No Live Data Yet';
 
   return (
     <div style={{ maxWidth: '1180px', margin: '0 auto', padding: '1rem 1.25rem 4rem 1.25rem' }}>
@@ -217,42 +236,58 @@ export default function Dashboard({
           </div>
 
           {/* Bar Chart Visualization */}
-          <div style={{ height: '200px', display: 'flex', alignItems: 'flex-end', gap: '1.25rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
-            {sessions.map((sess, idx) => {
-              const count = Object.keys(sess.records || {}).length;
-              const maxCount = Math.max(totalStudents, 5);
-              const heightPct = Math.max(15, Math.round((count / maxCount) * 100));
+          {sessions.length === 0 ? (
+            <div style={{ height: '200px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', color: '#86868b', textAlign: 'center', padding: '1rem' }}>
+              <Clock size={32} color="#6e6e73" style={{ marginBottom: '0.65rem' }} />
+              <div style={{ fontSize: '0.9rem', color: '#ffffff', fontWeight: 500, marginBottom: '0.25rem' }}>No Sessions Recorded Yet</div>
+              <div style={{ fontSize: '0.78rem', maxWidth: '340px', marginBottom: '0.85rem' }}>Camera start and stop operations automatically log discrete lecture sessions.</div>
+              <button
+                type="button"
+                className="apple-pill-primary"
+                onClick={() => onNavigate('scanner')}
+                style={{ fontSize: '0.78rem', padding: '0.35rem 0.95rem' }}
+              >
+                Launch Live Camera
+              </button>
+            </div>
+          ) : (
+            <div style={{ height: '200px', display: 'flex', alignItems: 'flex-end', gap: '1.25rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              {sessions.map((sess, idx) => {
+                const count = Object.keys(sess.records || {}).length;
+                const maxCount = Math.max(totalStudents, 5);
+                const heightPct = Math.max(15, Math.round((count / maxCount) * 100));
 
-              return (
-                <div key={sess.id || idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.35rem' }}>
-                    {count}
-                  </span>
-                  <div style={{
-                    width: '100%',
-                    maxWidth: '48px',
-                    height: `${heightPct}%`,
-                    backgroundColor: idx === sessions.length - 1 ? '#0071e3' : 'rgba(255, 255, 255, 0.14)',
-                    borderRadius: '6px 6px 0 0',
-                    transition: 'all 0.3s ease',
-                    boxShadow: idx === sessions.length - 1 ? '0 0 16px rgba(0, 113, 227, 0.4)' : 'none'
-                  }} />
-                  <span style={{
-                    fontSize: '0.72rem',
-                    color: '#86868b',
-                    marginTop: '0.5rem',
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
-                    overflow: 'hidden',
-                    maxWidth: '75px',
-                    textAlign: 'center'
-                  }}>
-                    {sess.name.length > 12 ? sess.name.slice(0, 10) + '..' : sess.name}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                return (
+                  <div key={sess.id || idx} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.35rem' }}>
+                      {count}
+                    </span>
+                    <div style={{
+                      width: '100%',
+                      maxWidth: '48px',
+                      height: `${heightPct}%`,
+                      backgroundColor: idx === sessions.length - 1 ? '#0071e3' : 'rgba(255, 255, 255, 0.14)',
+                      borderRadius: '6px 6px 0 0',
+                      transition: 'all 0.3s ease',
+                      boxShadow: idx === sessions.length - 1 ? '0 0 16px rgba(0, 113, 227, 0.4)' : 'none'
+                    }} />
+                    <span style={{
+                      fontSize: '0.72rem',
+                      color: '#86868b',
+                      marginTop: '0.5rem',
+                      whiteSpace: 'nowrap',
+                      textOverflow: 'ellipsis',
+                      overflow: 'hidden',
+                      maxWidth: '75px',
+                      textAlign: 'center'
+                    }}>
+                      {sess.name.length > 12 ? sess.name.slice(0, 10) + '..' : sess.name}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', fontSize: '0.75rem', color: '#86868b' }}>
             <span>Auto-generated per camera start / stop</span>
@@ -314,7 +349,7 @@ export default function Dashboard({
             fontSize: '0.78rem'
           }}>
             <span style={{ color: '#a1a1a6' }}>Dominant State:</span>
-            <span style={{ color: '#64b5ff', fontWeight: 600 }}>Neutral & Focused (76%)</span>
+            <span style={{ color: '#64b5ff', fontWeight: 600 }}>{dominantEmotionLabel}</span>
           </div>
         </div>
       </div>

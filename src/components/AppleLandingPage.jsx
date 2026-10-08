@@ -383,7 +383,7 @@ export default function AppleLandingPage({
                         textAlign: 'center',
                         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)'
                       }}>
-                        Alexander Wright
+                        Verified Student
                         <div style={{ fontSize: '0.68rem', fontWeight: 400, opacity: 0.9 }}>
                           99.4% Match · Neutral (91%)
                         </div>
@@ -409,7 +409,7 @@ export default function AppleLandingPage({
                         Currently In Frame (1)
                       </div>
                       <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f5f5f7' }}>
-                        Alexander Wright
+                        Verified Student
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#a1a1a6' }}>
                         <span>Entry: 09:40:12 AM</span>
@@ -797,7 +797,7 @@ export default function AppleLandingPage({
                 <span>Phone Usage</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', color: '#f5f5f7', paddingTop: '0.45rem' }}>
-                <span>Sarah Chen (CS-101)</span>
+                <span>Enrolled Student (CS-101)</span>
                 <span style={{ color: '#0071e3' }}>Session 1</span>
                 <span>09:00:14 AM</span>
                 <span>48 mins</span>
