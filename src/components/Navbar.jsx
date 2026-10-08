@@ -4,35 +4,20 @@ import {
   UserPlus, 
   ClipboardCheck, 
   Settings, 
-  Volume2, 
-  VolumeX, 
-  Database,
-  GraduationCap,
-  Home
+  GraduationCap 
 } from 'lucide-react';
-import { setSoundMuted } from '../utils/audio';
 
 export default function Navbar({ 
   activeTab, 
   setActiveTab, 
-  isSupabaseActive, 
-  modelsReady, 
-  isMuted, 
-  setIsMuted,
   onOpenSettings 
 }) {
-  const handleToggleSound = () => {
-    const nextMuted = !isMuted;
-    setIsMuted(nextMuted);
-    setSoundMuted(nextMuted);
-  };
-
   return (
     <header style={{
       maxWidth: '1280px',
       width: '100%',
-      margin: '1rem auto 1.25rem auto',
-      padding: '0.75rem 1.25rem',
+      margin: '0.75rem auto 1.25rem auto',
+      padding: '0.65rem 1.25rem',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -40,17 +25,13 @@ export default function Navbar({
       border: '1px solid var(--border-subtle)',
       borderRadius: 'var(--radius-lg)',
       flexWrap: 'wrap',
-      gap: '1rem'
+      gap: '0.75rem'
     }}>
-      {/* Brand & Home link */}
-      <div 
-        onClick={() => setActiveTab('home')}
-        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}
-        title="Go to Overview"
-      >
+      {/* Brand */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
         <div style={{
-          width: '38px',
-          height: '38px',
+          width: '36px',
+          height: '36px',
           borderRadius: 'var(--radius-md)',
           backgroundColor: 'var(--primary)',
           display: 'flex',
@@ -58,43 +39,28 @@ export default function Navbar({
           justifyContent: 'center',
           color: '#ffffff'
         }}>
-          <GraduationCap size={22} />
+          <GraduationCap size={20} />
         </div>
         <div>
-          <div style={{ fontSize: '1.15rem', fontWeight: 700, lineHeight: 1.2 }}>
+          <div style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.2 }}>
             VeriFace <span style={{ color: 'var(--primary)', fontWeight: 400 }}>Attendance</span>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Biometrics & Emotion Intelligence
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            Real-Time Face Recognition & Emotion Analytics
           </div>
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <nav style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--bg-app)', padding: '0.25rem', borderRadius: 'var(--radius-md)' }}>
-        <button
-          className="btn"
-          onClick={() => setActiveTab('home')}
-          style={{
-            backgroundColor: activeTab === 'home' ? 'var(--primary)' : 'transparent',
-            color: activeTab === 'home' ? '#ffffff' : 'var(--text-muted)',
-            padding: '0.5rem 0.85rem',
-            fontSize: '0.85rem',
-            border: 'none',
-          }}
-        >
-          <Home size={15} />
-          <span>Home</span>
-        </button>
-
+      {/* Navigation Tabs (Home fully deleted as requested) */}
+      <nav style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--bg-input)', padding: '0.25rem', borderRadius: 'var(--radius-md)' }}>
         <button
           className="btn"
           onClick={() => setActiveTab('scanner')}
           style={{
             backgroundColor: activeTab === 'scanner' ? 'var(--primary)' : 'transparent',
             color: activeTab === 'scanner' ? '#ffffff' : 'var(--text-muted)',
-            padding: '0.5rem 0.85rem',
-            fontSize: '0.85rem',
+            padding: '0.45rem 0.85rem',
+            fontSize: '0.82rem',
             border: 'none',
           }}
         >
@@ -108,8 +74,8 @@ export default function Navbar({
           style={{
             backgroundColor: activeTab === 'enrollment' ? 'var(--primary)' : 'transparent',
             color: activeTab === 'enrollment' ? '#ffffff' : 'var(--text-muted)',
-            padding: '0.5rem 0.85rem',
-            fontSize: '0.85rem',
+            padding: '0.45rem 0.85rem',
+            fontSize: '0.82rem',
             border: 'none',
           }}
         >
@@ -123,8 +89,8 @@ export default function Navbar({
           style={{
             backgroundColor: activeTab === 'logs' ? 'var(--primary)' : 'transparent',
             color: activeTab === 'logs' ? '#ffffff' : 'var(--text-muted)',
-            padding: '0.5rem 0.85rem',
-            fontSize: '0.85rem',
+            padding: '0.45rem 0.85rem',
+            fontSize: '0.82rem',
             border: 'none',
           }}
         >
@@ -133,39 +99,11 @@ export default function Navbar({
         </button>
       </nav>
 
-      {/* Right Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-        {/* Supabase status badge */}
+      {/* Right Controls: Only Settings button (Local Mode & Speaker completely removed as requested) */}
+      <div style={{ display: 'flex', alignItems: 'center' }}>
         <button
           onClick={onOpenSettings}
-          title="Supabase Database Status"
-          className="btn btn-outline"
-          style={{
-            padding: '0.45rem 0.75rem',
-            fontSize: '0.78rem',
-            borderRadius: 'var(--radius-md)',
-            borderColor: isSupabaseActive ? 'rgba(16, 185, 129, 0.4)' : 'rgba(245, 158, 11, 0.4)',
-            color: isSupabaseActive ? '#34d399' : '#fbbf24'
-          }}
-        >
-          <Database size={14} />
-          <span>{isSupabaseActive ? 'Supabase Connected' : 'Local Mode'}</span>
-        </button>
-
-        {/* Audio Mute/Unmute */}
-        <button
-          onClick={handleToggleSound}
-          title={isMuted ? 'Turn on sound' : 'Mute sound'}
-          className="btn btn-outline"
-          style={{ width: '36px', height: '36px', padding: 0 }}
-        >
-          {isMuted ? <VolumeX size={16} color="var(--danger)" /> : <Volume2 size={16} />}
-        </button>
-
-        {/* Settings */}
-        <button
-          onClick={onOpenSettings}
-          title="Settings"
+          title="Open Settings"
           className="btn btn-outline"
           style={{ width: '36px', height: '36px', padding: 0 }}
         >

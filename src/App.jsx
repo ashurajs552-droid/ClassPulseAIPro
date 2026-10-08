@@ -1,19 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
-import LandingPage from './components/LandingPage';
 import LiveScanner from './components/LiveScanner';
 import StudentEnrollment from './components/StudentEnrollment';
 import AttendanceLogs from './components/AttendanceLogs';
 import SettingsModal from './components/SettingsModal';
-import { loadFaceModels } from './services/faceEngine';
+import { loadFaceModels, DetectorType } from './services/faceEngine';
 import { loadPhoneDetector } from './services/phoneDetector';
 import { getStudents, getAttendanceRecords } from './services/storageService';
 import { isSupabaseConfigured } from './services/supabaseClient';
-import { getSoundMuted } from './utils/audio';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('home');
+  // Default to scanner (Home tab fully removed as requested)
+  const [activeTab, setActiveTab] = useState('scanner');
   const [modelsReady, setModelsReady] = useState(false);
   const [modelLoadingStatus, setModelLoadingStatus] = useState('Starting camera and recognition service...');
   const [modelError, setModelError] = useState(null);
@@ -23,10 +22,12 @@ export default function App() {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState([]);
 
-  // App settings states
-  const [isSupabaseActive, setIsSupabaseActive] = useState(false);
-  const [isMuted, setIsMuted] = useState(getSoundMuted());
+  // System Settings (Configured via Settings Modal)
+  const [detectorType, setDetectorType] = useState(DetectorType.TINY_FACE_DETECTOR);
+  const [phoneDetectionEnabled, setPhoneDetectionEnabled] = useState(true);
+  const [phoneSensitivity, setPhoneSensitivity] = useState('balanced');
   const [distanceThreshold, setDistanceThreshold] = useState(0.55);
+  const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // 1. Pre-load Neural Recognition & Phone Detection Models
@@ -50,7 +51,6 @@ export default function App() {
 
   // 2. Fetch Students and Attendance Records
   const refreshData = useCallback(async () => {
-    setIsSupabaseActive(isSupabaseConfigured());
     try {
       const studentList = await getStudents();
       setStudents(studentList || []);
@@ -77,35 +77,32 @@ export default function App() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Navigation Header */}
+    <div style={{ minHeight: '100vh', backgroundColor: '#000000', color: '#ffffff', display: 'flex', flexDirection: 'column' }}>
+      
+      {/* Navigation Header (Clean without Home, Local Mode or Speaker button) */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        isSupabaseActive={isSupabaseActive}
-        modelsReady={modelsReady}
-        isMuted={isMuted}
-        setIsMuted={setIsMuted}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Model Loading Status banner if still initializing */}
+      {/* Model Loading Status Banner (If initializing) */}
       {!modelsReady && !modelError && (
         <div style={{
           maxWidth: '1280px',
           width: '100%',
-          margin: '0 auto 1.25rem auto',
-          padding: '0.65rem 1rem',
+          margin: '0 auto 1rem auto',
+          padding: '0.6rem 1rem',
           borderRadius: 'var(--radius-md)',
-          backgroundColor: 'var(--primary-light)',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
           color: '#60a5fa',
-          border: '1px solid rgba(59, 130, 246, 0.2)',
+          border: '1px solid rgba(59, 130, 246, 0.25)',
           display: 'flex',
           alignItems: 'center',
-          gap: '0.65rem',
-          fontSize: '0.85rem'
+          gap: '0.6rem',
+          fontSize: '0.82rem'
         }}>
-          <Loader2 size={16} className="animate-spin" />
+          <Loader2 size={15} className="animate-spin" />
           <span>{modelLoadingStatus}</span>
         </div>
       )}
@@ -114,40 +111,35 @@ export default function App() {
         <div style={{
           maxWidth: '1280px',
           width: '100%',
-          margin: '0 auto 1.25rem auto',
-          padding: '0.65rem 1rem',
+          margin: '0 auto 1rem auto',
+          padding: '0.6rem 1rem',
           borderRadius: 'var(--radius-md)',
-          backgroundColor: 'var(--danger-light)',
+          backgroundColor: 'rgba(239, 68, 68, 0.15)',
           color: '#f87171',
           border: '1px solid rgba(239, 68, 68, 0.3)',
           display: 'flex',
           alignItems: 'center',
-          gap: '0.65rem',
-          fontSize: '0.85rem'
+          gap: '0.6rem',
+          fontSize: '0.82rem'
         }}>
-          <AlertCircle size={16} />
+          <AlertCircle size={15} />
           <span>{modelError}</span>
         </div>
       )}
 
       {/* Main Content Area */}
       <main style={{ flex: 1 }}>
-        {activeTab === 'home' && (
-          <LandingPage
-            onNavigate={(tab) => setActiveTab(tab)}
-            totalStudents={students.length}
-            isSupabaseActive={isSupabaseActive}
-          />
-        )}
-
         {activeTab === 'scanner' && (
           <LiveScanner
             students={students}
             todayAttendance={todayAttendance}
             onAttendanceMarked={handleAttendanceMarked}
             modelsReady={modelsReady}
+            detectorType={detectorType}
+            phoneDetectionEnabled={phoneDetectionEnabled}
+            phoneSensitivity={phoneSensitivity}
             distanceThreshold={distanceThreshold}
-            onThresholdChange={setDistanceThreshold}
+            soundAlertsEnabled={soundAlertsEnabled}
           />
         )}
 
@@ -169,13 +161,21 @@ export default function App() {
         )}
       </main>
 
-      {/* Settings Modal */}
+      {/* Settings Modal (Contains FPS, Phone, Sensitivity, and Cloud config) */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onConfigUpdated={refreshData}
+        detectorType={detectorType}
+        onDetectorTypeChange={setDetectorType}
+        phoneDetectionEnabled={phoneDetectionEnabled}
+        onPhoneDetectionToggle={setPhoneDetectionEnabled}
+        phoneSensitivity={phoneSensitivity}
+        onPhoneSensitivityChange={setPhoneSensitivity}
         distanceThreshold={distanceThreshold}
         onThresholdChange={setDistanceThreshold}
+        soundAlertsEnabled={soundAlertsEnabled}
+        onSoundAlertsToggle={setSoundAlertsEnabled}
       />
     </div>
   );

@@ -1,19 +1,19 @@
 /* ====================================================================
-   VeriFace — Modern, Clean, Professional SaaS Design System
-   Natural Human-Crafted Aesthetics: Slate & Indigo Minimalist Portal
+   VeriFace — Pure Black Minimalist SaaS Design System
+   Pure Black (#000000) & Neutral Charcoal (#0d0d0d / #161616)
    ==================================================================== */
 
 :root {
-  /* Surface & Background Colors */
-  --bg-app: #0b0f19;
-  --bg-card: #111827;
-  --bg-card-hover: #1f2937;
-  --bg-surface: #1e293b;
-  --bg-input: #0f172a;
+  /* Pure Black & Neutral Palette */
+  --bg-app: #000000;
+  --bg-card: #0d0d0d;
+  --bg-card-hover: #161616;
+  --bg-surface: #141414;
+  --bg-input: #080808;
   
   /* Borders */
-  --border-subtle: #1e293b;
-  --border-default: #334155;
+  --border-subtle: #1e1e1e;
+  --border-default: #2a2a2a;
   --border-focus: #3b82f6;
 
   /* Primary Brand Colors */
@@ -28,12 +28,12 @@
   --warning-light: rgba(245, 158, 11, 0.12);
 
   --danger: #ef4444;
-  --danger-light: rgba(239, 68, 68, 0.12);
+  --danger-light: rgba(239, 68, 68, 0.14);
 
   /* Typography Colors */
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --text-dim: #64748b;
+  --text-main: #ffffff;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
 
   /* Typography */
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -65,7 +65,7 @@ body {
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 /* Typography */
@@ -81,8 +81,8 @@ h1, h2, h3, h4, h5 {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.6rem 1.15rem;
-  font-size: 0.875rem;
+  padding: 0.55rem 1.1rem;
+  font-size: 0.85rem;
   font-weight: 500;
   font-family: inherit;
   border-radius: var(--radius-md);
@@ -94,7 +94,7 @@ h1, h2, h3, h4, h5 {
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -117,24 +117,24 @@ h1, h2, h3, h4, h5 {
 }
 
 .btn-outline {
-  background-color: transparent;
+  background-color: #111111;
   color: var(--text-main);
   border-color: var(--border-default);
 }
 
 .btn-outline:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: var(--text-muted);
+  background-color: #1a1a1a;
+  border-color: #444444;
 }
 
 .btn-danger {
   background-color: var(--danger-light);
   color: #f87171;
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: rgba(239, 68, 68, 0.2);
+  background-color: rgba(239, 68, 68, 0.25);
 }
 
 /* Form Controls */
@@ -153,7 +153,7 @@ h1, h2, h3, h4, h5 {
 .input-field:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
 }
 
 .input-label {
@@ -178,22 +178,28 @@ h1, h2, h3, h4, h5 {
 .badge-blue {
   background-color: var(--primary-light);
   color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .badge-green {
   background-color: var(--success-light);
   color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
 .badge-amber {
   background-color: var(--warning-light);
   color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.25);
+  border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
-/* Scrollbar */
+.badge-red {
+  background-color: var(--danger-light);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
