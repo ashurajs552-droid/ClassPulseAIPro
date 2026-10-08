@@ -4,19 +4,19 @@ let modelsLoaded = false;
 let loadPromise = null;
 
 export const DetectorType = {
-  SSD_MOBILENET_V1: 'ssdMobilenetv1',
-  TINY_FACE_DETECTOR: 'tinyFaceDetector',
+  TINY_FACE_DETECTOR: 'tinyFaceDetector', // 30+ FPS real-time tracking
+  SSD_MOBILENET_V1: 'ssdMobilenetv1',     // High-accuracy detector
 };
 
-// Human-friendly emotion metadata
+// Exact 7 Human Emotions
 export const EMOTIONS = {
-  neutral: { label: 'Attentive', emoji: '🎯', color: '#94a3b8', engagementWeight: 0.9 },
+  neutral: { label: 'Neutral', emoji: '😐', color: '#94a3b8', engagementWeight: 0.85 },
   happy: { label: 'Happy', emoji: '😊', color: '#10b981', engagementWeight: 1.0 },
-  surprised: { label: 'Curious', emoji: '💡', color: '#38bdf8', engagementWeight: 0.85 },
-  sad: { label: 'Fatigued', emoji: '☕', color: '#64748b', engagementWeight: 0.4 },
-  angry: { label: 'Distressed', emoji: '⚠️', color: '#ef4444', engagementWeight: 0.3 },
-  fearful: { label: 'Hesitant', emoji: '👀', color: '#f59e0b', engagementWeight: 0.4 },
-  disgusted: { label: 'Distracted', emoji: '💭', color: '#d97706', engagementWeight: 0.3 },
+  sad: { label: 'Sad', emoji: '😔', color: '#64748b', engagementWeight: 0.4 },
+  angry: { label: 'Angry', emoji: '😠', color: '#ef4444', engagementWeight: 0.3 },
+  fearful: { label: 'Fearful', emoji: '😨', color: '#f59e0b', engagementWeight: 0.4 },
+  disgusted: { label: 'Disgusted', emoji: '🤢', color: '#d97706', engagementWeight: 0.3 },
+  surprised: { label: 'Surprised', emoji: '😮', color: '#06b6d4', engagementWeight: 0.85 },
 };
 
 /**
@@ -29,11 +29,11 @@ export async function loadFaceModels(onProgress) {
   loadPromise = (async () => {
     try {
       const MODEL_PATH = '/models';
-      if (onProgress) onProgress({ status: 'loading', message: 'Loading facial recognition models...' });
+      if (onProgress) onProgress({ status: 'loading', message: 'Loading facial models...' });
 
       await Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_PATH),
         faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_PATH),
+        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_PATH),
         faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_PATH),
         faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_PATH),
         faceapi.nets.faceExpressionNet.loadFromUri(MODEL_PATH),
@@ -47,8 +47,8 @@ export async function loadFaceModels(onProgress) {
       try {
         const CDN_PATH = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
         await Promise.all([
-          faceapi.nets.ssdMobilenetv1.loadFromUri(CDN_PATH),
           faceapi.nets.tinyFaceDetector.loadFromUri(CDN_PATH),
+          faceapi.nets.ssdMobilenetv1.loadFromUri(CDN_PATH),
           faceapi.nets.faceLandmark68Net.loadFromUri(CDN_PATH),
           faceapi.nets.faceRecognitionNet.loadFromUri(CDN_PATH),
           faceapi.nets.faceExpressionNet.loadFromUri(CDN_PATH),
@@ -71,19 +71,22 @@ export function areModelsLoaded() {
   return modelsLoaded;
 }
 
-export function getDetectorOptions(type = DetectorType.SSD_MOBILENET_V1) {
-  if (type === DetectorType.SSD_MOBILENET_V1) {
-    // 0.40 confidence ensures robust face detection in classroom lighting
-    return new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4, maxResults: 12 });
+/**
+ * Get detector options optimized for 30+ FPS real-time tracking
+ */
+export function getDetectorOptions(type = DetectorType.TINY_FACE_DETECTOR) {
+  if (type === DetectorType.TINY_FACE_DETECTOR) {
+    // 224 input size allows 30-60 FPS smooth real-time tracking with accurate bounding box
+    return new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
   } else {
-    return new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 });
+    return new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4, maxResults: 10 });
   }
 }
 
 /**
- * Detect all faces with landmarks, expressions, and recognition descriptors
+ * Detect all faces in video with expressions and descriptors
  */
-export async function detectAllFacesWithDetails(mediaElement, detectorType = DetectorType.SSD_MOBILENET_V1) {
+export async function detectAllFacesWithDetails(mediaElement, detectorType = DetectorType.TINY_FACE_DETECTOR) {
   if (!modelsLoaded || !mediaElement) return [];
   const options = getDetectorOptions(detectorType);
 
@@ -95,7 +98,7 @@ export async function detectAllFacesWithDetails(mediaElement, detectorType = Det
 }
 
 /**
- * Single face capture for student registration
+ * Single face capture for registration
  */
 export async function detectSingleFaceDescriptor(mediaElement, detectorType = DetectorType.SSD_MOBILENET_V1) {
   if (!modelsLoaded || !mediaElement) return null;
@@ -148,11 +151,11 @@ export function createFaceMatcher(students, distanceThreshold = 0.55) {
 }
 
 /**
- * Extract dominant emotion and confidence percentage
+ * Extract dominant emotion and exact probabilities for all 7 emotions
  */
 export function getDominantEmotion(expressions) {
   if (!expressions) {
-    return { emotion: 'neutral', label: 'Attentive', emoji: '🎯', confidence: 100, color: '#94a3b8' };
+    return { emotion: 'neutral', label: 'Neutral', emoji: '😐', confidence: 100, color: '#94a3b8' };
   }
 
   let dominant = 'neutral';
@@ -180,11 +183,10 @@ export function getDominantEmotion(expressions) {
 }
 
 /**
- * Calculate match confidence % from euclidean distance
+ * Calculate match confidence %
  */
 export function calculateMatchConfidence(distance, threshold = 0.55) {
   if (distance >= threshold) return 0;
-  // Scaled relative to standard threshold boundary
   const confidence = Math.round((1 - distance / 0.70) * 100);
   return Math.min(100, Math.max(0, confidence));
 }
