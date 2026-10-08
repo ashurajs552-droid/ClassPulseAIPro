@@ -11,11 +11,6 @@ import {
   AlertCircle,
   Volume2
 } from 'lucide-react';
-import { 
-  getSupabaseConfig, 
-  saveSupabaseConfig, 
-  testSupabaseConnection 
-} from '../services/supabaseClient';
 import { syncLocalToSupabase } from '../services/storageService';
 import { DetectorType } from '../services/faceEngine';
 
@@ -35,44 +30,17 @@ export default function SettingsModal({
   soundAlertsEnabled,
   onSoundAlertsToggle
 }) {
-  const [supabaseUrl, setSupabaseUrl] = useState('');
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState('');
-  const [testResult, setTestResult] = useState(null);
-  const [testing, setTesting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [copiedSchema, setCopiedSchema] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      const cfg = getSupabaseConfig();
-      setSupabaseUrl(cfg.url || '');
-      setSupabaseAnonKey(cfg.anonKey || '');
-      setTestResult(null);
       setSyncResult(null);
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
-
-  const handleTestConnection = async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await testSupabaseConnection(supabaseUrl, supabaseAnonKey);
-      setTestResult(res);
-    } catch (err) {
-      setTestResult({ success: false, message: err.message });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleSaveConfig = () => {
-    saveSupabaseConfig(supabaseUrl, supabaseAnonKey);
-    if (onConfigUpdated) onConfigUpdated();
-    setTestResult({ success: true, message: 'Database configuration saved.' });
-  };
 
   const handleSyncToSupabase = async () => {
     setSyncing(true);
@@ -268,12 +236,12 @@ CREATE POLICY "Allow public all on attendance" ON public.attendance_records FOR 
           />
         </div>
 
-        {/* 4. Supabase Database Configuration */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-              <Database size={15} color="var(--primary)" />
-              <h4 style={{ fontSize: '0.92rem' }}>Supabase Database Connection</h4>
+        {/* 4. Supabase Database Status (Merged Credentials) */}
+        <div style={{ paddingTop: '0.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Database size={16} color="var(--primary)" />
+              <h4 style={{ fontSize: '0.92rem' }}>Cloud Database</h4>
             </div>
 
             <button
@@ -286,71 +254,44 @@ CREATE POLICY "Allow public all on attendance" ON public.attendance_records FOR 
             </button>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '0.85rem' }}>
-            <div>
-              <label className="input-label">Project URL</label>
-              <input
-                className="input-field"
-                placeholder="https://your-project.supabase.co"
-                value={supabaseUrl}
-                onChange={(e) => setSupabaseUrl(e.target.value)}
-              />
+          <div style={{
+            padding: '0.85rem 1rem',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: '#141414',
+            border: '1px solid #222222',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '0.75rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <span style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: '#10b981',
+                boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)'
+              }} />
+              <div>
+                <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#f5f5f7' }}>
+                  Supabase PostgreSQL Connected
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  your-project-id.supabase.co
+                </div>
+              </div>
             </div>
-
-            <div>
-              <label className="input-label">Anon Public Key</label>
-              <input
-                type="password"
-                className="input-field"
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI..."
-                value={supabaseAnonKey}
-                onChange={(e) => setSupabaseAnonKey(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <button
-              className="btn btn-outline"
-              onClick={handleTestConnection}
-              disabled={testing || !supabaseUrl || !supabaseAnonKey}
-              style={{ fontSize: '0.8rem' }}
-            >
-              {testing ? 'Testing...' : 'Test Connection'}
-            </button>
-
-            <button className="btn btn-primary" onClick={handleSaveConfig} style={{ fontSize: '0.8rem' }}>
-              Save Database Config
-            </button>
 
             <button
               className="btn btn-outline"
               onClick={handleSyncToSupabase}
-              disabled={syncing || !supabaseUrl || !supabaseAnonKey}
-              style={{ fontSize: '0.8rem' }}
+              disabled={syncing}
+              style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
             >
               <UploadCloud size={14} />
-              <span>{syncing ? 'Syncing...' : 'Upload Local Data'}</span>
+              <span>{syncing ? 'Syncing...' : 'Sync Local Data'}</span>
             </button>
           </div>
-
-          {testResult && (
-            <div style={{
-              marginTop: '0.65rem',
-              padding: '0.55rem 0.75rem',
-              borderRadius: 'var(--radius-md)',
-              fontSize: '0.8rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              backgroundColor: testResult.success ? 'var(--success-light)' : 'var(--danger-light)',
-              color: testResult.success ? '#34d399' : '#f87171',
-              border: `1px solid ${testResult.success ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`
-            }}>
-              {testResult.success ? <Check size={14} /> : <AlertCircle size={14} />}
-              <span>{testResult.message}</span>
-            </div>
-          )}
 
           {syncResult && (
             <div style={{

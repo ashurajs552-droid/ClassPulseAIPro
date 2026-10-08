@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
+import AppleLandingPage from './components/AppleLandingPage';
 import LiveScanner from './components/LiveScanner';
 import StudentEnrollment from './components/StudentEnrollment';
 import AttendanceLogs from './components/AttendanceLogs';
@@ -11,8 +12,8 @@ import { isSupabaseConfigured } from './services/supabaseClient';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  // Default to scanner (Home tab fully removed as requested)
-  const [activeTab, setActiveTab] = useState('scanner');
+  // Default to Apple Landing Page Overview
+  const [activeTab, setActiveTab] = useState('overview');
   const [modelsReady, setModelsReady] = useState(false);
   const [modelLoadingStatus, setModelLoadingStatus] = useState('Starting camera and recognition service...');
   const [modelError, setModelError] = useState(null);
@@ -86,8 +87,8 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Model Loading Status Banner (If initializing) */}
-      {!modelsReady && !modelError && (
+      {/* Model Loading Status Banner (Shown on scanner tab if still initializing) */}
+      {!modelsReady && !modelError && activeTab !== 'overview' && (
         <div style={{
           maxWidth: '1280px',
           width: '100%',
@@ -129,6 +130,16 @@ export default function App() {
 
       {/* Main Content Area */}
       <main style={{ flex: 1 }}>
+        {activeTab === 'overview' && (
+          <AppleLandingPage
+            onLaunchCamera={() => setActiveTab('scanner')}
+            onRegisterStudent={() => setActiveTab('enrollment')}
+            onViewRecords={() => setActiveTab('logs')}
+            studentsCount={students.length}
+            attendanceCount={attendanceRecords.length}
+          />
+        )}
+
         {activeTab === 'scanner' && (
           <LiveScanner
             students={students}
