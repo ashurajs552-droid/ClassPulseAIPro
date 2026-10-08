@@ -520,7 +520,7 @@ export default function LiveScanner({
 
     const meta = [
       '========================================================================================',
-      `VERIFACE - ${sessionName.toUpperCase()} AUDIT REPORT`,
+      `CLASSPULSE AI PRO - ${sessionName.toUpperCase()} AUDIT REPORT`,
       `Session Date: ${sessionDate}`,
       `Session Started: ${startStr}`,
       `Report Exported: ${exportStr}`,
@@ -592,7 +592,7 @@ export default function LiveScanner({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `VeriFace_${sessionName.replace(/\s+/g, '_')}_${sessionDate}.csv`;
+    link.download = `ClassPulseAIPro_${sessionName.replace(/\s+/g, '_')}_${sessionDate}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };

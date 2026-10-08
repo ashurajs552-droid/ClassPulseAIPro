@@ -1,21 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import AppleLandingPage from './components/AppleLandingPage';
+import Dashboard from './components/Dashboard';
 import LiveScanner from './components/LiveScanner';
+import SessionManager from './components/SessionManager';
 import StudentEnrollment from './components/StudentEnrollment';
 import AttendanceLogs from './components/AttendanceLogs';
 import SettingsModal from './components/SettingsModal';
+import AuthModal from './components/AuthModal';
 import { loadFaceModels, DetectorType } from './services/faceEngine';
 import { loadPhoneDetector } from './services/phoneDetector';
 import { getStudents, getAttendanceRecords } from './services/storageService';
-import { isSupabaseConfigured } from './services/supabaseClient';
+import { getCurrentUser, signOutUser, onAuthStateChange } from './services/authService';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  // Default to Apple Landing Page Overview
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  // Active navigation tab ('overview', 'dashboard', 'scanner', 'sessions', 'enrollment', 'logs')
   const [activeTab, setActiveTab] = useState('overview');
+
+  // AI model states
   const [modelsReady, setModelsReady] = useState(false);
-  const [modelLoadingStatus, setModelLoadingStatus] = useState('Starting camera and recognition service...');
+  const [modelLoadingStatus, setModelLoadingStatus] = useState('Starting biometric and recognition models...');
   const [modelError, setModelError] = useState(null);
 
   // Data states
@@ -23,7 +33,7 @@ export default function App() {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState([]);
 
-  // System Settings (Configured via Settings Modal)
+  // System Settings
   const [detectorType, setDetectorType] = useState(DetectorType.TINY_FACE_DETECTOR);
   const [phoneDetectionEnabled, setPhoneDetectionEnabled] = useState(true);
   const [phoneSensitivity, setPhoneSensitivity] = useState('balanced');
@@ -31,7 +41,36 @@ export default function App() {
   const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // 1. Pre-load Neural Recognition & Phone Detection Models
+  // 1. Check initial user auth state
+  useEffect(() => {
+    async function initAuth() {
+      try {
+        const currentUser = await getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+          setActiveTab('dashboard'); // Enters dashboard when authenticated
+        } else {
+          setActiveTab('overview'); // Public landing page
+        }
+      } catch (e) {
+        console.warn('Error reading auth state:', e);
+      } finally {
+        setAuthChecked(true);
+      }
+    }
+    initAuth();
+
+    const unsubscribe = onAuthStateChange((updatedUser) => {
+      setUser(updatedUser);
+      if (updatedUser && activeTab === 'overview') {
+        setActiveTab('dashboard');
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Pre-load Neural Recognition & Phone Detection Models
   useEffect(() => {
     async function initModels() {
       try {
@@ -50,7 +89,7 @@ export default function App() {
     initModels();
   }, []);
 
-  // 2. Fetch Students and Attendance Records
+  // 3. Fetch Students and Attendance Records
   const refreshData = useCallback(async () => {
     try {
       const studentList = await getStudents();
@@ -77,18 +116,42 @@ export default function App() {
     setAttendanceRecords((prev) => [newRecord, ...prev]);
   };
 
+  // Auth Handlers
+  const handleAuthSuccess = (authedUser) => {
+    setUser(authedUser);
+    setActiveTab('dashboard'); // Automatically enter dashboard after login!
+  };
+
+  const handleSignOut = async () => {
+    await signOutUser();
+    setUser(null);
+    setActiveTab('overview'); // Return to public landing page
+  };
+
+  // Guard for protected features
+  const handleGuardedNavigation = (targetTab) => {
+    if (user) {
+      setActiveTab(targetTab);
+    } else {
+      setIsAuthOpen(true);
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#000000', color: '#ffffff', display: 'flex', flexDirection: 'column' }}>
       
-      {/* Navigation Header (Clean without Home, Local Mode or Speaker button) */}
+      {/* Navigation Header */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        user={user}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onSignOut={handleSignOut}
       />
 
       {/* Model Loading Status Banner (Shown on scanner tab if still initializing) */}
-      {!modelsReady && !modelError && activeTab !== 'overview' && (
+      {!modelsReady && !modelError && activeTab === 'scanner' && (
         <div style={{
           maxWidth: '1280px',
           width: '100%',
@@ -128,18 +191,34 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Main View Router */}
       <main style={{ flex: 1 }}>
+        {/* 1. Landing Page (Overview) */}
         {activeTab === 'overview' && (
           <AppleLandingPage
-            onLaunchCamera={() => setActiveTab('scanner')}
-            onRegisterStudent={() => setActiveTab('enrollment')}
-            onViewRecords={() => setActiveTab('logs')}
+            onLaunchCamera={() => handleGuardedNavigation('scanner')}
+            onRegisterStudent={() => handleGuardedNavigation('enrollment')}
+            onViewRecords={() => handleGuardedNavigation('logs')}
+            onOpenAuth={() => setIsAuthOpen(true)}
+            onEnterDashboard={() => setActiveTab('dashboard')}
+            user={user}
             studentsCount={students.length}
             attendanceCount={attendanceRecords.length}
           />
         )}
 
+        {/* 2. Intelligence Dashboard (With stats & graphs) */}
+        {activeTab === 'dashboard' && (
+          <Dashboard
+            user={user}
+            students={students}
+            attendanceRecords={attendanceRecords}
+            todayAttendance={todayAttendance}
+            onNavigate={(tab) => setActiveTab(tab)}
+          />
+        )}
+
+        {/* 3. Live Camera Biometric Recognition */}
         {activeTab === 'scanner' && (
           <LiveScanner
             students={students}
@@ -154,6 +233,14 @@ export default function App() {
           />
         )}
 
+        {/* 4. Academic Sessions Ledger (View, Edit, Delete, Export) */}
+        {activeTab === 'sessions' && (
+          <SessionManager
+            onNavigateToScanner={() => setActiveTab('scanner')}
+          />
+        )}
+
+        {/* 5. Student Biometric Registration */}
         {activeTab === 'enrollment' && (
           <StudentEnrollment
             students={students}
@@ -162,6 +249,7 @@ export default function App() {
           />
         )}
 
+        {/* 6. Attendance Logs & Audit Tables */}
         {activeTab === 'logs' && (
           <AttendanceLogs
             attendanceRecords={attendanceRecords}
@@ -172,7 +260,14 @@ export default function App() {
         )}
       </main>
 
-      {/* Settings Modal (Contains FPS, Phone, Sensitivity, and Cloud config) */}
+      {/* Auth Modal (Google OAuth, Email/Password, Demo Access) */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
+
+      {/* Settings Modal (FPS, Phone Vision, Strictly Managed Database) */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

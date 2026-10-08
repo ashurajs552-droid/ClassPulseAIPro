@@ -1,6 +1,6 @@
-# ⚡ VeriFace AI — High-Precision Face Recognition & Real-Time Emotion Attendance System
+# ⚡ ClassPulseAIPro — High-Precision Face Recognition & Real-Time Emotion Attendance System
 
-> A next-generation, biometric facial recognition and real-time emotion telemetry system with automated attendance marking, Supabase cloud sync, and 100% Vercel deployment readiness.
+> A next-generation, biometric facial recognition and real-time emotion telemetry system with automated attendance marking, Google Auth, session-wise auditing, Supabase cloud sync, and 100% Vercel deployment readiness.
 
 ---
 

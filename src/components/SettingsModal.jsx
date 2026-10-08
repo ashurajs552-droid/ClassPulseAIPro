@@ -57,7 +57,7 @@ export default function SettingsModal({
   };
 
   const handleCopySchema = () => {
-    const sqlSchema = `-- VeriFace Supabase Database Schema
+    const sqlSchema = `-- ClassPulseAIPro Supabase Database Schema
 CREATE TABLE IF NOT EXISTS public.students (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     student_id TEXT UNIQUE NOT NULL,
