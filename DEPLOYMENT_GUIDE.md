@@ -25,17 +25,7 @@ Vercel automatically detects the framework via `vercel.json`:
 
 ---
 
-### Step 3: Add Environment Variables (Optional but Recommended)
-Open the **Environment Variables** accordion and add your Supabase credentials:
 
-| Key | Value | Description |
-| :--- | :--- | :--- |
-| `VITE_SUPABASE_URL` | `https://your-project-id.supabase.co` | Your live Supabase Project URL |
-| `VITE_SUPABASE_ANON_KEY` | `your-supabase-anon-key` | Your Supabase Anon Key |
-
-> **Note**: Even if you skip adding environment variables, the codebase has your Supabase credentials bundled as defaults in `src/services/supabaseClient.js`, so it works out of the box!
-
----
 
 ### Step 4: Click Deploy!
 1. Click **"Deploy"**.
