@@ -1,93 +1,130 @@
-# 📋 VeriFace AI — Supabase & Vercel Deployment Checklist
+# 🚀 ClassPulseAIPro — Vercel Deployment & Supabase Guide
 
-This document guides you through setting up Supabase and deploying VeriFace AI to Vercel.
-
----
-
-## 🛠️ Part 1: Supabase Database Setup
-
-1. **Log in / Sign up**:
-   Open [https://supabase.com](https://supabase.com) and create an account or sign in.
-
-2. **Create a New Project**:
-   - Click **New Project**.
-   - Choose a project name (e.g. `veriface-ai-db`).
-   - Set a secure database password.
-   - Choose a region close to your users.
-   - Click **Create new project** (takes ~1-2 minutes).
-
-3. **Run the Database Schema**:
-   - In the left sidebar, click the **SQL Editor** (icon `>_`).
-   - Click **New Query**.
-   - Open [`supabase-schema.sql`](file:///Users/blinks2780/.gemini/antigravity-ide/scratch/veriface-ai/supabase-schema.sql) in your project.
-   - Copy the entire SQL content and paste it into the Supabase SQL Editor.
-   - Click **Run** (or `Cmd+Enter`).
-   - You should see `Success. No rows returned`.
-
-4. **Retrieve API Credentials**:
-   - In the left sidebar, click the **Project Settings** (gear icon) at the bottom.
-   - Click **API**.
-   - Under **Project URL**, copy your URL (e.g., `https://xyzabc.supabase.co`).
-   - Under **Project API keys**, copy the `anon` `public` key.
+This comprehensive guide will walk you through deploying **ClassPulseAIPro** to **Vercel** in less than 3 minutes, connecting your live Supabase database, and setting up Google OAuth for production.
 
 ---
 
-## 🚀 Part 2: Connect Supabase in the Application
+## ⚡ Quick 1-Minute Deployment via Vercel Dashboard
 
-You can connect in either of two ways:
+Since your code is already pushed to GitHub at **[https://github.com/ashurajs552-droid/ClassPulseAIPro.git](https://github.com/ashurajs552-droid/ClassPulseAIPro.git)**, deploying to Vercel requires just a few clicks:
 
-### Option A: Directly from the Web App UI (No Code Editing)
-1. Open the app (`http://localhost:5173`).
-2. Click the **Local Storage / Settings** button in the top navigation bar.
-3. Paste your **Supabase URL** and **Anon Key**.
-4. Click **Test Connection**. You will see:
-   > `✓ Successfully connected to Supabase database!`
-5. Click **Save Configuration**.
-6. If you have already registered students or recorded attendance locally, click **Sync Local Data to Supabase** to upload them instantly!
-
-### Option B: Using `.env` File
-Create a `.env` file in the `veriface-ai` project directory:
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
-```
+### Step 1: Import Project to Vercel
+1. Go to [https://vercel.com](https://vercel.com) and log in (or sign up with GitHub).
+2. On your Vercel Dashboard, click **"Add New..."** (top right) → Select **"Project"**.
+3. Under **"Import Git Repository"**, find and select **`ClassPulseAIPro`** (or paste `https://github.com/ashurajs552-droid/ClassPulseAIPro`).
+4. Click **"Import"**.
 
 ---
 
-## 🌐 Part 3: Deploying to Vercel
+### Step 2: Configure Project Settings
+Vercel automatically detects the framework via `vercel.json`:
+* **Framework Preset**: `Vite` (auto-detected)
+* **Root Directory**: `./` (default)
+* **Build Command**: `npm run build` (auto-detected)
+* **Output Directory**: `dist` (auto-detected)
 
-### Method A: Connect with GitHub (Recommended)
-1. Push your project to a GitHub repository:
-   ```bash
-   cd /Users/blinks2780/.gemini/antigravity-ide/scratch/veriface-ai
-   git init
-   git add .
-   git commit -m "Initial VeriFace AI release"
-   git remote add origin https://github.com/your-username/veriface-ai.git
-   git push -u origin main
-   ```
-2. Log into [Vercel](https://vercel.com) and click **Add New** → **Project**.
-3. Select your `veriface-ai` repository.
-4. Framework Preset will automatically detect **Vite**.
-5. Under **Environment Variables**, add:
-   - Name: `VITE_SUPABASE_URL`, Value: `your-project-url`
-   - Name: `VITE_SUPABASE_ANON_KEY`, Value: `your-anon-key`
-6. Click **Deploy**!
+---
 
-### Method B: Deploying using Vercel CLI
+### Step 3: Add Environment Variables (Optional but Recommended)
+Open the **Environment Variables** accordion and add your Supabase credentials:
+
+| Key | Value | Description |
+| :--- | :--- | :--- |
+| `VITE_SUPABASE_URL` | `https://your-project-id.supabase.co` | Your live Supabase Project URL |
+| `VITE_SUPABASE_ANON_KEY` | `your-supabase-anon-key` | Your Supabase Anon Key |
+
+> **Note**: Even if you skip adding environment variables, the codebase has your Supabase credentials bundled as defaults in `src/services/supabaseClient.js`, so it works out of the box!
+
+---
+
+### Step 4: Click Deploy!
+1. Click **"Deploy"**.
+2. Vercel will bundle the application and deploy within ~45 seconds.
+3. You will receive a live production URL:
+   `https://class-pulse-ai-pro.vercel.app` (or similar custom sub-domain).
+
+---
+
+## 💻 Alternative: Deploying via Vercel CLI (Terminal)
+
+You can also deploy directly from your local terminal using the Vercel CLI:
+
 ```bash
 cd /Users/blinks2780/.gemini/antigravity-ide/scratch/veriface-ai
 npx vercel
 ```
-Follow the terminal prompts:
-- Set up and deploy: **Yes**
-- Link to existing project: **No**
-- Project name: `veriface-ai`
-- Directory: `./`
-- Modify default settings: **No**
+
+Follow the interactive prompts:
+* **Set up and deploy?**: `y`
+* **Which scope?**: Press `Enter` (select your Vercel account)
+* **Link to existing project?**: `N`
+* **Project name**: `classpulse-ai-pro`
+* **In which directory is your code located?**: `./`
+* **Want to modify settings?**: `N`
+
+To deploy straight to production:
+```bash
+npx vercel --prod
+```
 
 ---
 
-## 🔒 Security & Camera Permissions Note for Vercel
-- Modern browsers require **HTTPS** to allow webcam access (`navigator.mediaDevices.getUserMedia`).
-- Vercel automatically provisions free SSL/TLS certificates (`https://your-app.vercel.app`), so camera access works seamlessly out of the box!
+## 🔑 Crucial Post-Deployment Steps (Supabase & Google Auth)
+
+Once your live Vercel URL is generated (e.g. `https://class-pulse-ai-pro.vercel.app`), complete these two quick settings:
+
+### 1. Enable Instant Email Login in Supabase (No Confirmation Required)
+By default, Supabase requires users to click an email verification link before logging in, which triggers `Email not confirmed`.
+To enable instant password logins:
+1. Open your [Supabase Project Dashboard](https://supabase.com/dashboard/project/your-project-id).
+2. Go to **Authentication** (left sidebar) → **Providers** → Click on **Email**.
+3. Toggle **OFF** **"Confirm email"**.
+4. Click **Save**.
+
+---
+
+### 2. Update Supabase URL Configuration for Vercel
+To ensure OAuth and redirect links point to your live Vercel app:
+1. In your Supabase Dashboard, go to **Authentication** → **URL Configuration**.
+2. Set **Site URL** to your Vercel production URL:
+   ```text
+   https://class-pulse-ai-pro.vercel.app
+   ```
+3. Under **Redirect URLs**, add:
+   ```text
+   https://class-pulse-ai-pro.vercel.app/**
+   http://localhost:5173/**
+   ```
+4. Click **Save**.
+
+---
+
+### 3. Connect Google OAuth
+1. Go to the [Google Cloud Console Credentials Page](https://console.cloud.google.com/apis/credentials).
+2. Create an **OAuth 2.0 Client ID** (Type: **Web application**).
+3. Under **Authorized Javascript Origins**, add:
+   ```text
+   https://class-pulse-ai-pro.vercel.app
+   https://your-project-id.supabase.co
+   ```
+4. Under **Authorized redirect URIs**, add:
+   ```text
+   https://your-project-id.supabase.co/auth/v1/callback
+   ```
+5. In your Supabase Dashboard, go to **Authentication** → **Providers** → **Google**:
+   - Toggle **Enable Google provider** to **ON**.
+   - Paste your **Client ID** and **Client Secret**.
+   - Click **Save**.
+
+---
+
+## 🛡️ Camera & HTTPS Permissions on Vercel
+* All modern browsers (Chrome, Safari, Firefox, Edge) require a secure **HTTPS** context to allow webcam access (`navigator.mediaDevices.getUserMedia`).
+* Vercel automatically equips all deployments with free, auto-renewing SSL/TLS certificates, so the camera scanner and distraction vision work seamlessly on desktop and mobile.
+
+---
+
+## 📦 What Makes This Build Vercel-Ready?
+* **Zero External Model CDN Dependencies**: Neural weights for TinyFace, SSD MobileNet, 68 Landmark mesh, and 128D embeddings are bundled locally in `/public/models/`.
+* **SPA Routing**: `vercel.json` contains route rewrites so direct navigation and refreshes on `/` never return 404.
+* **Aggressive Model Caching**: `vercel.json` sets `Cache-Control: public, max-age=31536000, immutable` for neural weights, ensuring instantaneous model loading after the first visit.
