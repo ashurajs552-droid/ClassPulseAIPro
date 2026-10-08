@@ -2,9 +2,6 @@ import { createClient } from '@supabase/supabase-js';
 
 const CONFIG_KEY = 'veriface_supabase_config';
 
-const DEFAULT_SUPABASE_URL = 'https://your-project-id.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'your-supabase-anon-key';
-
 export function getSupabaseConfig() {
   let stored = null;
   try {
@@ -14,8 +11,8 @@ export function getSupabaseConfig() {
     console.warn('Failed to parse stored Supabase config:', e);
   }
 
-  const url = stored?.url || import.meta.env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-  const anonKey = stored?.anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+  const url = stored?.url || import.meta.env.VITE_SUPABASE_URL || '';
+  const anonKey = stored?.anonKey || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
   return { url: url.trim(), anonKey: anonKey.trim() };
 }
