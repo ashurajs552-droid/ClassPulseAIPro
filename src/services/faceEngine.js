@@ -3,25 +3,24 @@ import * as faceapi from '@vladmandic/face-api';
 let modelsLoaded = false;
 let loadPromise = null;
 
-// Available detector options
 export const DetectorType = {
-  SSD_MOBILENET_V1: 'ssdMobilenetv1', // Highest accuracy
-  TINY_FACE_DETECTOR: 'tinyFaceDetector', // Fastest
+  SSD_MOBILENET_V1: 'ssdMobilenetv1',
+  TINY_FACE_DETECTOR: 'tinyFaceDetector',
 };
 
-// Emotion metadata mapping
+// Human-friendly emotion metadata
 export const EMOTIONS = {
-  neutral: { label: 'Neutral', emoji: '😐', color: '#94a3b8', engagementWeight: 0.85 },
+  neutral: { label: 'Attentive', emoji: '🎯', color: '#94a3b8', engagementWeight: 0.9 },
   happy: { label: 'Happy', emoji: '😊', color: '#10b981', engagementWeight: 1.0 },
-  surprised: { label: 'Surprised', emoji: '😮', color: '#06b6d4', engagementWeight: 0.9 },
-  sad: { label: 'Sad', emoji: '😔', color: '#64748b', engagementWeight: 0.4 },
-  angry: { label: 'Angry', emoji: '😠', color: '#ef4444', engagementWeight: 0.3 },
-  fearful: { label: 'Fearful', emoji: '😨', color: '#f59e0b', engagementWeight: 0.4 },
-  disgusted: { label: 'Disgusted', emoji: '🤢', color: '#d97706', engagementWeight: 0.3 },
+  surprised: { label: 'Curious', emoji: '💡', color: '#38bdf8', engagementWeight: 0.85 },
+  sad: { label: 'Fatigued', emoji: '☕', color: '#64748b', engagementWeight: 0.4 },
+  angry: { label: 'Distressed', emoji: '⚠️', color: '#ef4444', engagementWeight: 0.3 },
+  fearful: { label: 'Hesitant', emoji: '👀', color: '#f59e0b', engagementWeight: 0.4 },
+  disgusted: { label: 'Distracted', emoji: '💭', color: '#d97706', engagementWeight: 0.3 },
 };
 
 /**
- * Load face-api AI models from local /models directory (copied from node_modules)
+ * Load face-api models
  */
 export async function loadFaceModels(onProgress) {
   if (modelsLoaded) return true;
@@ -30,9 +29,8 @@ export async function loadFaceModels(onProgress) {
   loadPromise = (async () => {
     try {
       const MODEL_PATH = '/models';
-      if (onProgress) onProgress({ status: 'loading', message: 'Loading neural networks...' });
+      if (onProgress) onProgress({ status: 'loading', message: 'Loading facial recognition models...' });
 
-      // Load SSD MobileNet (accurate) + TinyFace (speed) + landmarks + expressions + recognition
       await Promise.all([
         faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_PATH),
         faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_PATH),
@@ -42,10 +40,10 @@ export async function loadFaceModels(onProgress) {
       ]);
 
       modelsLoaded = true;
-      if (onProgress) onProgress({ status: 'ready', message: 'AI Models Loaded Successfully' });
+      if (onProgress) onProgress({ status: 'ready', message: 'Ready' });
       return true;
     } catch (err) {
-      console.error('Failed to load local models, trying CDN fallback...', err);
+      console.warn('Local model load failed, attempting CDN fallback...', err);
       try {
         const CDN_PATH = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
         await Promise.all([
@@ -56,11 +54,11 @@ export async function loadFaceModels(onProgress) {
           faceapi.nets.faceExpressionNet.loadFromUri(CDN_PATH),
         ]);
         modelsLoaded = true;
-        if (onProgress) onProgress({ status: 'ready', message: 'AI Models Loaded from CDN' });
+        if (onProgress) onProgress({ status: 'ready', message: 'Ready' });
         return true;
       } catch (cdnErr) {
-        console.error('Both local and CDN model loads failed:', cdnErr);
-        if (onProgress) onProgress({ status: 'error', message: 'Failed to load face AI models: ' + cdnErr.message });
+        console.error('All model loading attempts failed:', cdnErr);
+        if (onProgress) onProgress({ status: 'error', message: 'Failed to load face models' });
         throw cdnErr;
       }
     }
@@ -73,37 +71,31 @@ export function areModelsLoaded() {
   return modelsLoaded;
 }
 
-/**
- * Get detector options depending on mode
- */
 export function getDetectorOptions(type = DetectorType.SSD_MOBILENET_V1) {
   if (type === DetectorType.SSD_MOBILENET_V1) {
-    // minConfidence 0.5 for SSD MobileNet ensures clean face boxes
-    return new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5, maxResults: 10 });
+    // 0.40 confidence ensures robust face detection in classroom lighting
+    return new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4, maxResults: 12 });
   } else {
-    // inputSize 416 or 320, scoreThreshold 0.5
-    return new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+    return new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 });
   }
 }
 
 /**
- * Detect all faces in video or image with landmarks, expressions, and recognition descriptors
+ * Detect all faces with landmarks, expressions, and recognition descriptors
  */
 export async function detectAllFacesWithDetails(mediaElement, detectorType = DetectorType.SSD_MOBILENET_V1) {
   if (!modelsLoaded || !mediaElement) return [];
   const options = getDetectorOptions(detectorType);
 
-  const detections = await faceapi
+  return await faceapi
     .detectAllFaces(mediaElement, options)
     .withFaceLandmarks()
     .withFaceExpressions()
     .withFaceDescriptors();
-
-  return detections;
 }
 
 /**
- * Single face capture for student enrollment (returns descriptor Float32Array + box)
+ * Single face capture for student registration
  */
 export async function detectSingleFaceDescriptor(mediaElement, detectorType = DetectorType.SSD_MOBILENET_V1) {
   if (!modelsLoaded || !mediaElement) return null;
@@ -118,7 +110,7 @@ export async function detectSingleFaceDescriptor(mediaElement, detectorType = De
   if (!detection) return null;
 
   return {
-    descriptor: Array.from(detection.descriptor), // convert Float32Array to standard array for JSON storage
+    descriptor: Array.from(detection.descriptor),
     box: detection.detection.box,
     expressions: detection.expressions,
     dominantEmotion: getDominantEmotion(detection.expressions),
@@ -126,12 +118,9 @@ export async function detectSingleFaceDescriptor(mediaElement, detectorType = De
 }
 
 /**
- * Build FaceMatcher instance from registered students list
- * Supports multi-descriptor embeddings per student (e.g. 3-5 angles)
- * @param {Array} students List of students with face_descriptors array
- * @param {number} distanceThreshold Euclidean distance cutoff (e.g., 0.50)
+ * Build FaceMatcher instance from registered students
  */
-export function createFaceMatcher(students, distanceThreshold = 0.50) {
+export function createFaceMatcher(students, distanceThreshold = 0.55) {
   if (!students || students.length === 0) return null;
 
   const labeledDescriptors = [];
@@ -142,7 +131,6 @@ export function createFaceMatcher(students, distanceThreshold = 0.50) {
       return;
     }
 
-    // Convert raw array of arrays into Float32Array descriptors
     const validFloatDescriptors = rawDescriptors
       .filter((desc) => Array.isArray(desc) && desc.length === 128)
       .map((desc) => new Float32Array(desc));
@@ -156,16 +144,15 @@ export function createFaceMatcher(students, distanceThreshold = 0.50) {
 
   if (labeledDescriptors.length === 0) return null;
 
-  // FaceMatcher with threshold (distance < threshold => match)
   return new faceapi.FaceMatcher(labeledDescriptors, distanceThreshold);
 }
 
 /**
- * Extract dominant emotion, confidence percentage, and metadata
+ * Extract dominant emotion and confidence percentage
  */
 export function getDominantEmotion(expressions) {
   if (!expressions) {
-    return { emotion: 'neutral', label: 'Neutral', emoji: '😐', confidence: 100, color: '#94a3b8' };
+    return { emotion: 'neutral', label: 'Attentive', emoji: '🎯', confidence: 100, color: '#94a3b8' };
   }
 
   let dominant = 'neutral';
@@ -194,26 +181,12 @@ export function getDominantEmotion(expressions) {
 
 /**
  * Calculate match confidence % from euclidean distance
- * Lower distance = higher confidence
  */
-export function calculateMatchConfidence(distance, threshold = 0.50) {
+export function calculateMatchConfidence(distance, threshold = 0.55) {
   if (distance >= threshold) return 0;
-  // Linear scaling from threshold (0%) down to 0 distance (100%)
-  const confidence = (1 - distance / threshold) * 100;
-  return Math.min(100, Math.max(0, Math.round(confidence * 10) / 10));
-}
-
-/**
- * Euclidean distance calculation between two 128D vectors
- */
-export function euclideanDistance(arr1, arr2) {
-  if (!arr1 || !arr2 || arr1.length !== arr2.length) return 1.0;
-  let sum = 0;
-  for (let i = 0; i < arr1.length; i++) {
-    const diff = arr1[i] - arr2[i];
-    sum += diff * diff;
-  }
-  return Math.sqrt(sum);
+  // Scaled relative to standard threshold boundary
+  const confidence = Math.round((1 - distance / 0.70) * 100);
+  return Math.min(100, Math.max(0, confidence));
 }
 
 export { faceapi };

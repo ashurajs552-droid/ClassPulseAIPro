@@ -8,12 +8,12 @@ import { loadFaceModels } from './services/faceEngine';
 import { getStudents, getAttendanceRecords } from './services/storageService';
 import { isSupabaseConfigured } from './services/supabaseClient';
 import { getSoundMuted } from './utils/audio';
-import { Loader2, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('scanner');
   const [modelsReady, setModelsReady] = useState(false);
-  const [modelLoadingStatus, setModelLoadingStatus] = useState('Initializing Face Recognition Engine...');
+  const [modelLoadingStatus, setModelLoadingStatus] = useState('Starting camera and recognition service...');
   const [modelError, setModelError] = useState(null);
 
   // Data states
@@ -24,27 +24,26 @@ export default function App() {
   // App settings states
   const [isSupabaseActive, setIsSupabaseActive] = useState(false);
   const [isMuted, setIsMuted] = useState(getSoundMuted());
-  const [distanceThreshold, setDistanceThreshold] = useState(0.50);
+  const [distanceThreshold, setDistanceThreshold] = useState(0.55);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // 1. Load Neural Networks Models
+  // 1. Load Recognition Engine
   useEffect(() => {
     async function initModels() {
       try {
-        setModelLoadingStatus('Loading Deep Neural Weights (SSD MobileNet & ResNet-34)...');
         await loadFaceModels(({ status, message }) => {
           setModelLoadingStatus(message);
         });
         setModelsReady(true);
       } catch (err) {
-        console.error('Failed to load face models:', err);
-        setModelError('Neural network loading error: ' + err.message);
+        console.error('Failed to load recognition models:', err);
+        setModelError('Error loading recognition models: ' + err.message);
       }
     }
     initModels();
   }, []);
 
-  // 2. Fetch Students and Attendance Data
+  // 2. Fetch Students and Attendance Records
   const refreshData = useCallback(async () => {
     setIsSupabaseActive(isSupabaseConfigured());
     try {
@@ -66,7 +65,7 @@ export default function App() {
     refreshData();
   }, [refreshData]);
 
-  // Handle new attendance marked in live scanner
+  // Handle new attendance marked
   const handleAttendanceMarked = (newRecord) => {
     setTodayAttendance((prev) => [newRecord, ...prev]);
     setAttendanceRecords((prev) => [newRecord, ...prev]);
@@ -74,7 +73,7 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Top Cyber Navigation Bar */}
+      {/* Navigation Header */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -85,39 +84,43 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Model Loading / Error Banner */}
+      {/* Model Loading Status */}
       {!modelsReady && !modelError && (
         <div style={{
-          margin: '0 1rem 1rem 1rem',
-          padding: '0.85rem 1.25rem',
+          maxWidth: '1240px',
+          width: '100%',
+          margin: '0 auto 1.25rem auto',
+          padding: '0.65rem 1rem',
           borderRadius: 'var(--radius-md)',
-          background: 'rgba(6, 182, 212, 0.1)',
-          border: '1px solid rgba(6, 182, 212, 0.25)',
+          backgroundColor: 'var(--primary-light)',
+          color: '#60a5fa',
+          border: '1px solid rgba(59, 130, 246, 0.2)',
           display: 'flex',
           alignItems: 'center',
-          gap: '0.75rem',
-          color: '#38bdf8',
+          gap: '0.65rem',
           fontSize: '0.85rem'
         }}>
-          <Loader2 size={18} className="animate-spin" />
+          <Loader2 size={16} className="animate-spin" />
           <span>{modelLoadingStatus}</span>
         </div>
       )}
 
       {modelError && (
         <div style={{
-          margin: '0 1rem 1rem 1rem',
-          padding: '0.85rem 1.25rem',
+          maxWidth: '1240px',
+          width: '100%',
+          margin: '0 auto 1.25rem auto',
+          padding: '0.65rem 1rem',
           borderRadius: 'var(--radius-md)',
-          background: 'rgba(244, 63, 94, 0.15)',
-          border: '1px solid rgba(244, 63, 94, 0.3)',
+          backgroundColor: 'var(--danger-light)',
+          color: '#f87171',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
           display: 'flex',
           alignItems: 'center',
-          gap: '0.75rem',
-          color: '#f87171',
+          gap: '0.65rem',
           fontSize: '0.85rem'
         }}>
-          <AlertCircle size={18} />
+          <AlertCircle size={16} />
           <span>{modelError}</span>
         </div>
       )}
