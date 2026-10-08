@@ -886,7 +886,7 @@ export default function AppleLandingPage({
             color: '#a1a1a6'
           }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }} />
-            <span>your-project-id.supabase.co</span>
+            <span>{import.meta.env.VITE_SUPABASE_URL ? import.meta.env.VITE_SUPABASE_URL.replace(/^https?:\/\//, '') : 'cloud.supabase.co'}</span>
           </div>
         </div>
       </section>

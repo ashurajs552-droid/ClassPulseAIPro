@@ -277,7 +277,7 @@ CREATE POLICY "Allow public all on attendance" ON public.attendance_records FOR 
                   Supabase PostgreSQL Connected
                 </div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  your-project-id.supabase.co
+                  {import.meta.env.VITE_SUPABASE_URL ? import.meta.env.VITE_SUPABASE_URL.replace(/^https?:\/\//, '') : 'cloud.supabase.co'}
                 </div>
               </div>
             </div>

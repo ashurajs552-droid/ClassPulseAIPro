@@ -72,7 +72,7 @@ Once your live Vercel URL is generated (e.g. `https://class-pulse-ai-pro.vercel.
 ### 1. Enable Instant Email Login in Supabase (No Confirmation Required)
 By default, Supabase requires users to click an email verification link before logging in, which triggers `Email not confirmed`.
 To enable instant password logins:
-1. Open your [Supabase Project Dashboard](https://supabase.com/dashboard/project/your-project-id).
+1. Open your [Supabase Project Dashboard](https://supabase.com/dashboard).
 2. Go to **Authentication** (left sidebar) → **Providers** → Click on **Email**.
 3. Toggle **OFF** **"Confirm email"**.
 4. Click **Save**.
@@ -101,11 +101,11 @@ To ensure OAuth and redirect links point to your live Vercel app:
 3. Under **Authorized Javascript Origins**, add:
    ```text
    https://class-pulse-ai-pro.vercel.app
-   https://your-project-id.supabase.co
+   https://<your-project-id>.supabase.co
    ```
 4. Under **Authorized redirect URIs**, add:
    ```text
-   https://your-project-id.supabase.co/auth/v1/callback
+   https://<your-project-id>.supabase.co/auth/v1/callback
    ```
 5. In your Supabase Dashboard, go to **Authentication** → **Providers** → **Google**:
    - Toggle **Enable Google provider** to **ON**.
