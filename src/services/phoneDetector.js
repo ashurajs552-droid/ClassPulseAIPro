@@ -3,9 +3,10 @@ import '@tensorflow/tfjs';
 
 let phoneModel = null;
 let loadingPromise = null;
+let isModelReady = false;
 
 /**
- * Load COCO-SSD object detection model for cell phone identification
+ * Pre-load COCO-SSD object detection model
  */
 export async function loadPhoneDetector() {
   if (phoneModel) return phoneModel;
@@ -13,9 +14,11 @@ export async function loadPhoneDetector() {
 
   loadingPromise = (async () => {
     try {
-      console.log('Loading Phone Detection Model (COCO-SSD Lite)...');
+      console.log('Loading COCO-SSD Phone Detection Model...');
+      // Use mobilenet_v2 for balanced accuracy and speed
       phoneModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-      console.log('Phone Detection Model Loaded Successfully!');
+      isModelReady = true;
+      console.log('Phone Detection Model Ready!');
       return phoneModel;
     } catch (err) {
       console.error('Failed to load phone detector:', err);
@@ -26,57 +29,111 @@ export async function loadPhoneDetector() {
   return loadingPromise;
 }
 
+export function isPhoneDetectorReady() {
+  return isModelReady;
+}
+
 /**
- * Detect cell phones in video frame
- * Returns array of detected cell phone boxes: [{ bbox: [x, y, w, h], score }]
+ * Detect phones and handheld distractions in video frame
+ * Uses calibrated score threshold (0.28) and handles phone variations (including phones held as books/remotes)
  */
-export async function detectPhones(videoElement) {
+export async function detectPhones(videoElement, sensitivity = 'balanced') {
   if (!videoElement || videoElement.videoWidth === 0) return [];
   if (!phoneModel) {
     await loadPhoneDetector();
   }
   if (!phoneModel) return [];
 
+  // Score threshold based on sensitivity
+  // balanced: 0.28 (best real-world phone catch rate)
+  // high: 0.22 (catches even partially hidden phones)
+  // strict: 0.38 (strictly confirmed phones)
+  const scoreThreshold = sensitivity === 'high' ? 0.22 : sensitivity === 'strict' ? 0.38 : 0.28;
+
   try {
-    const predictions = await phoneModel.detect(videoElement, 6, 0.40);
-    // Filter for cell phone objects
-    const phones = predictions.filter(
-      (p) => p.class === 'cell phone' || p.class === 'remote' || p.class === 'electronic device'
-    );
+    const predictions = await phoneModel.detect(videoElement, 10, scoreThreshold);
+
+    // Filter items representing cell phones or mobile handheld devices
+    const phones = [];
+
+    predictions.forEach((item) => {
+      const cls = item.class.toLowerCase();
+      const [x, y, w, h] = item.bbox;
+
+      // 1. Direct cell phone match
+      if (cls === 'cell phone' || cls === 'remote' || cls === 'electronic device') {
+        phones.push({
+          bbox: item.bbox,
+          score: item.score,
+          class: 'cell phone',
+          label: 'Mobile Phone',
+        });
+      }
+      // 2. Rectangular handheld objects frequently confused by COCO (smartphones often misclassified as "book" when flat/dark)
+      else if (cls === 'book') {
+        // A smartphone has typical aspect ratio and size (width < 320, height < 320, area < 65000)
+        const area = w * h;
+        const aspect = Math.max(w / h, h / w);
+        if (w < 320 && h < 320 && area < 65000 && aspect > 1.2 && aspect < 2.5) {
+          phones.push({
+            bbox: item.bbox,
+            score: Math.min(0.95, item.score * 0.95),
+            class: 'cell phone',
+            label: 'Mobile Device',
+          });
+        }
+      }
+    });
+
     return phones;
   } catch (err) {
-    console.error('Error detecting phone:', err);
+    console.error('Phone detection error:', err);
     return [];
   }
 }
 
 /**
- * Determines if a phone bounding box is near or held by a student face
- * Expand face box downward to represent upper body / hand holding zone
+ * Associates detected phone with the closest student face in frame
+ * @param {Array} phoneBbox [x, y, w, h]
+ * @param {Array} detectedFaces Array of detected face objects with { box, student }
  */
-export function isPhoneAssociatedWithFace(phoneBbox, faceBox) {
+export function findAssociatedStudentForPhone(phoneBbox, detectedFaces) {
+  if (!detectedFaces || detectedFaces.length === 0) return null;
+
   const [px, py, pw, ph] = phoneBbox;
-  const fx = faceBox.x;
-  const fy = faceBox.y;
-  const fw = faceBox.width;
-  const fh = faceBox.height;
-
-  // Student body zone: from face down by 3.5x face height, and 1.5x face width left/right
-  const bodyZone = {
-    x: fx - fw * 0.75,
-    y: fy,
-    width: fw * 2.5,
-    height: fh * 4.0,
-  };
-
   const phoneCenterX = px + pw / 2;
   const phoneCenterY = py + ph / 2;
 
-  const inZone =
-    phoneCenterX >= bodyZone.x &&
-    phoneCenterX <= bodyZone.x + bodyZone.width &&
-    phoneCenterY >= bodyZone.y &&
-    phoneCenterY <= bodyZone.y + bodyZone.height;
+  let closestStudent = null;
+  let minDistance = Infinity;
 
-  return inZone;
+  // Max pixel distance in camera feed for a phone to be associated with a person
+  const maxAllowedDistance = 450;
+
+  detectedFaces.forEach((face) => {
+    const fBox = face.box || face;
+    const faceCenterX = fBox.x + fBox.width / 2;
+    // Expected hand/chest position is below the face
+    const chestY = fBox.y + fBox.height * 2.0;
+
+    const dx = phoneCenterX - faceCenterX;
+    const dy = phoneCenterY - chestY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestStudent = face.student || face.matchedStudent || null;
+    }
+  });
+
+  if (minDistance <= maxAllowedDistance) {
+    return closestStudent;
+  }
+
+  // If only 1 student is in the entire frame, associate the phone with that student
+  if (detectedFaces.length === 1) {
+    return detectedFaces[0].student || detectedFaces[0].matchedStudent || null;
+  }
+
+  return null;
 }

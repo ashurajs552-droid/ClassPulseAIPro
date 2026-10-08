@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
+import LandingPage from './components/LandingPage';
 import LiveScanner from './components/LiveScanner';
 import StudentEnrollment from './components/StudentEnrollment';
 import AttendanceLogs from './components/AttendanceLogs';
 import SettingsModal from './components/SettingsModal';
 import { loadFaceModels } from './services/faceEngine';
+import { loadPhoneDetector } from './services/phoneDetector';
 import { getStudents, getAttendanceRecords } from './services/storageService';
 import { isSupabaseConfigured } from './services/supabaseClient';
 import { getSoundMuted } from './utils/audio';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('scanner');
+  const [activeTab, setActiveTab] = useState('home');
   const [modelsReady, setModelsReady] = useState(false);
   const [modelLoadingStatus, setModelLoadingStatus] = useState('Starting camera and recognition service...');
   const [modelError, setModelError] = useState(null);
@@ -27,13 +29,16 @@ export default function App() {
   const [distanceThreshold, setDistanceThreshold] = useState(0.55);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // 1. Load Recognition Engine
+  // 1. Pre-load Neural Recognition & Phone Detection Models
   useEffect(() => {
     async function initModels() {
       try {
-        await loadFaceModels(({ status, message }) => {
-          setModelLoadingStatus(message);
-        });
+        await Promise.all([
+          loadFaceModels(({ status, message }) => {
+            setModelLoadingStatus(message);
+          }),
+          loadPhoneDetector(),
+        ]);
         setModelsReady(true);
       } catch (err) {
         console.error('Failed to load recognition models:', err);
@@ -84,10 +89,10 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Model Loading Status */}
+      {/* Model Loading Status banner if still initializing */}
       {!modelsReady && !modelError && (
         <div style={{
-          maxWidth: '1240px',
+          maxWidth: '1280px',
           width: '100%',
           margin: '0 auto 1.25rem auto',
           padding: '0.65rem 1rem',
@@ -107,7 +112,7 @@ export default function App() {
 
       {modelError && (
         <div style={{
-          maxWidth: '1240px',
+          maxWidth: '1280px',
           width: '100%',
           margin: '0 auto 1.25rem auto',
           padding: '0.65rem 1rem',
@@ -127,6 +132,14 @@ export default function App() {
 
       {/* Main Content Area */}
       <main style={{ flex: 1 }}>
+        {activeTab === 'home' && (
+          <LandingPage
+            onNavigate={(tab) => setActiveTab(tab)}
+            totalStudents={students.length}
+            isSupabaseActive={isSupabaseActive}
+          />
+        )}
+
         {activeTab === 'scanner' && (
           <LiveScanner
             students={students}

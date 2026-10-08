@@ -7,7 +7,8 @@ import {
   Volume2, 
   VolumeX, 
   Database,
-  GraduationCap
+  GraduationCap,
+  Home
 } from 'lucide-react';
 import { setSoundMuted } from '../utils/audio';
 
@@ -28,9 +29,9 @@ export default function Navbar({
 
   return (
     <header style={{
-      maxWidth: '1240px',
+      maxWidth: '1280px',
       width: '100%',
-      margin: '1rem auto 1.5rem auto',
+      margin: '1rem auto 1.25rem auto',
       padding: '0.75rem 1.25rem',
       display: 'flex',
       alignItems: 'center',
@@ -41,8 +42,12 @@ export default function Navbar({
       flexWrap: 'wrap',
       gap: '1rem'
     }}>
-      {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+      {/* Brand & Home link */}
+      <div 
+        onClick={() => setActiveTab('home')}
+        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}
+        title="Go to Overview"
+      >
         <div style={{
           width: '38px',
           height: '38px',
@@ -60,7 +65,7 @@ export default function Navbar({
             VeriFace <span style={{ color: 'var(--primary)', fontWeight: 400 }}>Attendance</span>
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Facial Recognition & Attendance Portal
+            Biometrics & Emotion Intelligence
           </div>
         </div>
       </div>
@@ -69,16 +74,31 @@ export default function Navbar({
       <nav style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', backgroundColor: 'var(--bg-app)', padding: '0.25rem', borderRadius: 'var(--radius-md)' }}>
         <button
           className="btn"
-          onClick={() => setActiveTab('scanner')}
+          onClick={() => setActiveTab('home')}
           style={{
-            backgroundColor: activeTab === 'scanner' ? 'var(--primary)' : 'transparent',
-            color: activeTab === 'scanner' ? '#ffffff' : 'var(--text-muted)',
-            padding: '0.5rem 0.9rem',
+            backgroundColor: activeTab === 'home' ? 'var(--primary)' : 'transparent',
+            color: activeTab === 'home' ? '#ffffff' : 'var(--text-muted)',
+            padding: '0.5rem 0.85rem',
             fontSize: '0.85rem',
             border: 'none',
           }}
         >
-          <Camera size={16} />
+          <Home size={15} />
+          <span>Home</span>
+        </button>
+
+        <button
+          className="btn"
+          onClick={() => setActiveTab('scanner')}
+          style={{
+            backgroundColor: activeTab === 'scanner' ? 'var(--primary)' : 'transparent',
+            color: activeTab === 'scanner' ? '#ffffff' : 'var(--text-muted)',
+            padding: '0.5rem 0.85rem',
+            fontSize: '0.85rem',
+            border: 'none',
+          }}
+        >
+          <Camera size={15} />
           <span>Live Camera</span>
         </button>
 
@@ -88,12 +108,12 @@ export default function Navbar({
           style={{
             backgroundColor: activeTab === 'enrollment' ? 'var(--primary)' : 'transparent',
             color: activeTab === 'enrollment' ? '#ffffff' : 'var(--text-muted)',
-            padding: '0.5rem 0.9rem',
+            padding: '0.5rem 0.85rem',
             fontSize: '0.85rem',
             border: 'none',
           }}
         >
-          <UserPlus size={16} />
+          <UserPlus size={15} />
           <span>Register Student</span>
         </button>
 
@@ -103,12 +123,12 @@ export default function Navbar({
           style={{
             backgroundColor: activeTab === 'logs' ? 'var(--primary)' : 'transparent',
             color: activeTab === 'logs' ? '#ffffff' : 'var(--text-muted)',
-            padding: '0.5rem 0.9rem',
+            padding: '0.5rem 0.85rem',
             fontSize: '0.85rem',
             border: 'none',
           }}
         >
-          <ClipboardCheck size={16} />
+          <ClipboardCheck size={15} />
           <span>Attendance Records</span>
         </button>
       </nav>

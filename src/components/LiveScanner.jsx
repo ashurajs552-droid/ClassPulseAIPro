@@ -11,11 +11,12 @@ import {
   Smartphone, 
   Clock, 
   RefreshCw,
-  LogOut,
   LogIn,
+  LogOut,
   SlidersHorizontal,
   Flame,
-  ShieldAlert
+  ShieldCheck,
+  Volume2
 } from 'lucide-react';
 import { 
   detectAllFacesWithDetails, 
@@ -25,7 +26,11 @@ import {
   DetectorType,
   EMOTIONS
 } from '../services/faceEngine';
-import { detectPhones, isPhoneAssociatedWithFace } from '../services/phoneDetector';
+import { 
+  detectPhones, 
+  findAssociatedStudentForPhone, 
+  isPhoneDetectorReady 
+} from '../services/phoneDetector';
 import { markAttendance, isStudentMarkedToday } from '../services/storageService';
 import { playSuccessChime, playAlertSound } from '../utils/audio';
 
@@ -46,12 +51,16 @@ export default function LiveScanner({
   const [detectorType, setDetectorType] = useState(DetectorType.TINY_FACE_DETECTOR);
   const [cameraError, setCameraError] = useState(null);
 
-  // Session state: { [studentId]: { student_id, student_name, avatar_url, entryTime, lastSeenTime, exitTime, isPresentInFrame, currentEmotion, phoneViolations, hasPhoneNow } }
+  // Phone detection settings
+  const [phoneDetectionEnabled, setPhoneDetectionEnabled] = useState(true);
+  const [phoneSensitivity, setPhoneSensitivity] = useState('balanced'); // 'high', 'balanced', 'strict'
+
+  // Session state: { [studentId]: { student_id, student_name, department, avatar_url, firstEntryTime, lastSeenTime, exitTime, isPresentInFrame, activeSeconds, currentEmotion, phoneViolations, hasPhoneNow, emotionHistory } }
   const [sessionStudents, setSessionStudents] = useState({});
   const [sessionStartTime, setSessionStartTime] = useState(Date.now());
   const [sessionDurationSec, setSessionDurationSec] = useState(0);
 
-  // Real-time phone alerts log: [{ id, studentName, timestamp, confidence }]
+  // Real-time phone detection alerts: [{ id, studentName, timestamp, confidence, label }]
   const [phoneAlerts, setPhoneAlerts] = useState([]);
   const [activePhonesInFrame, setActivePhonesInFrame] = useState([]);
 
@@ -72,7 +81,6 @@ export default function LiveScanner({
   const cachedPhonesRef = useRef([]);
   const lastAlertSoundTimeRef = useRef(0);
 
-  // Sync ref with state
   useEffect(() => {
     sessionStudentsRef.current = sessionStudents;
   }, [sessionStudents]);
@@ -86,12 +94,25 @@ export default function LiveScanner({
     }
   }, [students, distanceThreshold]);
 
-  // Session duration timer
+  // Session duration timer & active seconds accumulator
   useEffect(() => {
     let timer = null;
     if (isScanning) {
       timer = setInterval(() => {
         setSessionDurationSec((prev) => prev + 1);
+
+        // Accumulate active seconds for students currently in frame
+        setSessionStudents((prev) => {
+          let updated = false;
+          const next = { ...prev };
+          Object.keys(next).forEach((sId) => {
+            if (next[sId].isPresentInFrame) {
+              next[sId].activeSeconds = (next[sId].activeSeconds || 0) + 1;
+              updated = true;
+            }
+          });
+          return updated ? next : prev;
+        });
       }, 1000);
     }
     return () => {
@@ -99,7 +120,7 @@ export default function LiveScanner({
     };
   }, [isScanning]);
 
-  // Periodic checker for students who exited the frame (> 4s of not being seen)
+  // Periodic checker to mark exit for students who stepped away (> 3.5s not seen)
   useEffect(() => {
     if (!isScanning) return;
     const interval = setInterval(() => {
@@ -109,7 +130,7 @@ export default function LiveScanner({
 
       Object.keys(current).forEach((sId) => {
         const student = current[sId];
-        if (student.isPresentInFrame && now - student.lastSeenTime > 4000) {
+        if (student.isPresentInFrame && now - student.lastSeenTime > 3500) {
           student.isPresentInFrame = false;
           student.exitTime = student.lastSeenTime;
           student.hasPhoneNow = false;
@@ -120,7 +141,7 @@ export default function LiveScanner({
       if (changed) {
         setSessionStudents(current);
       }
-    }, 1500);
+    }, 1200);
 
     return () => clearInterval(interval);
   }, [isScanning]);
@@ -208,9 +229,9 @@ export default function LiveScanner({
     frameCountRef.current += 1;
 
     try {
-      // 1. Run Phone Detection every 4th frame (approx ~120ms) for high performance without lag
-      if (frameCountRef.current % 4 === 0) {
-        detectPhones(video)
+      // 1. Run Phone Detection every 3rd frame (smooth ~100ms interval)
+      if (phoneDetectionEnabled && frameCountRef.current % 3 === 0) {
+        detectPhones(video, phoneSensitivity)
           .then((phones) => {
             cachedPhonesRef.current = phones;
             setActivePhonesInFrame(phones);
@@ -218,13 +239,16 @@ export default function LiveScanner({
           .catch(() => {});
       }
 
-      const currentPhones = cachedPhonesRef.current || [];
+      const currentPhones = phoneDetectionEnabled ? cachedPhonesRef.current || [] : [];
 
-      // 2. Run Face & 7-Emotion Tracking
+      // 2. Real-time Face & 7-Emotion Tracking
       const detections = await detectAllFacesWithDetails(video, detectorType);
       const moodCounts = { neutral: 0, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 };
       const updatedSession = { ...sessionStudentsRef.current };
       let sessionChanged = false;
+
+      // Prepare list of detected faces with matches for phone association
+      const detectedFacesList = [];
 
       for (let i = 0; i < detections.length; i++) {
         const det = detections[i];
@@ -249,53 +273,36 @@ export default function LiveScanner({
           }
         }
 
-        // Check if a cell phone is associated with this student
-        let studentHasPhone = false;
-        let matchedPhoneScore = 0;
-
-        currentPhones.forEach((phone) => {
-          if (isPhoneAssociatedWithFace(phone.bbox, box)) {
-            studentHasPhone = true;
-            matchedPhoneScore = Math.round(phone.score * 100);
-          }
+        detectedFacesList.push({
+          box,
+          student: matchedStudent,
+          matchedStudent,
+          emotionData,
         });
-
-        // If phone detected with student, trigger alert sound & log
-        if (studentHasPhone) {
-          if (now - lastAlertSoundTimeRef.current > 3000) {
-            playAlertSound();
-            lastAlertSoundTimeRef.current = now;
-
-            const alertRecord = {
-              id: crypto.randomUUID(),
-              studentName: matchedStudent ? matchedStudent.full_name : `Student #${i + 1}`,
-              timestamp: new Date().toLocaleTimeString(),
-              confidence: matchedPhoneScore,
-            };
-            setPhoneAlerts((prev) => [alertRecord, ...prev.slice(0, 19)]);
-          }
-        }
 
         // Student Session Tracking (Entry / Exit / Duration)
         if (matchedStudent) {
           const sId = matchedStudent.student_id;
           if (!updatedSession[sId]) {
-            // First Entry into class!
+            // First Entry timestamp
             updatedSession[sId] = {
               student_id: sId,
               student_name: matchedStudent.full_name,
+              department: matchedStudent.department || 'General',
               avatar_url: matchedStudent.avatar_url,
-              entryTime: now,
+              firstEntryTime: now,
               lastSeenTime: now,
               exitTime: null,
               isPresentInFrame: true,
+              activeSeconds: 1,
               currentEmotion: emotionData,
-              phoneViolations: studentHasPhone ? 1 : 0,
-              hasPhoneNow: studentHasPhone,
+              phoneViolations: 0,
+              hasPhoneNow: false,
+              emotionHistory: { [emotionData.emotion]: 1 },
             };
             sessionChanged = true;
 
-            // Auto-mark daily attendance in database
+            // Auto-mark daily attendance record
             markAttendance({
               student_id: sId,
               student_name: matchedStudent.full_name,
@@ -307,32 +314,71 @@ export default function LiveScanner({
               emotion_scores: emotionData.scores,
             }).then(() => {
               playSuccessChime();
+              try {
+                confetti({ particleCount: 35, spread: 45, origin: { y: 0.7 } });
+              } catch (e) {}
               if (onAttendanceMarked) {
                 onAttendanceMarked({ student_id: sId, student_name: matchedStudent.full_name });
               }
             });
           } else {
-            // Existing student in session: update live state
             const st = updatedSession[sId];
             st.lastSeenTime = now;
             st.isPresentInFrame = true;
             st.exitTime = null;
             st.currentEmotion = emotionData;
-            st.hasPhoneNow = studentHasPhone;
-            if (studentHasPhone) {
-              st.phoneViolations = (st.phoneViolations || 0) + 1;
-            }
+            // Record emotion distribution in session
+            st.emotionHistory = st.emotionHistory || {};
+            st.emotionHistory[emotionData.emotion] = (st.emotionHistory[emotionData.emotion] || 0) + 1;
+            sessionChanged = true;
+          }
+        }
+      }
+
+      // Check phone association and draw phone overlays
+      currentPhones.forEach((phone) => {
+        // Draw prominent red warning box on the phone
+        drawPhoneBoundingBox(ctx, phone.bbox, Math.round(phone.score * 100));
+
+        // Find associated student
+        const associatedStudent = findAssociatedStudentForPhone(phone.bbox, detectedFacesList);
+
+        if (associatedStudent) {
+          const sId = associatedStudent.student_id;
+          if (updatedSession[sId]) {
+            updatedSession[sId].hasPhoneNow = true;
             sessionChanged = true;
           }
         }
 
-        // Draw clean real-time face overlay with 7-emotion tag & phone warning
-        drawRealtimeFaceHUD(ctx, box, matchedStudent, matchConfidence, isUnknown, emotionData, studentHasPhone);
-      }
+        // Trigger audible alarm & add to phone alerts feed (debounced every 3s)
+        if (now - lastAlertSoundTimeRef.current > 3000) {
+          playAlertSound();
+          lastAlertSoundTimeRef.current = now;
 
-      // Draw bounding boxes around all detected phones in the frame
-      currentPhones.forEach((phone) => {
-        drawPhoneBoundingBox(ctx, phone.bbox, Math.round(phone.score * 100));
+          const studentLabel = associatedStudent ? associatedStudent.full_name : 'In Camera View';
+          setPhoneAlerts((prev) => [
+            {
+              id: crypto.randomUUID(),
+              studentName: studentLabel,
+              timestamp: new Date().toLocaleTimeString(),
+              confidence: Math.round(phone.score * 100),
+            },
+            ...prev.slice(0, 14),
+          ]);
+
+          if (associatedStudent && updatedSession[associatedStudent.student_id]) {
+            updatedSession[associatedStudent.student_id].phoneViolations += 1;
+          }
+        }
+      });
+
+      // Draw real-time face overlays with 7-emotion tags
+      detectedFacesList.forEach((item) => {
+        const student = item.student;
+        const sId = student?.student_id;
+        const hasPhone = sId ? updatedSession[sId]?.hasPhoneNow : false;
+        drawRealtimeFaceHUD(ctx, item.box, student, 95, !student, item.emotionData, hasPhone);
       });
 
       if (sessionChanged) {
@@ -340,13 +386,13 @@ export default function LiveScanner({
       }
       setLiveEmotionsCount(moodCounts);
     } catch (err) {
-      console.error('Tracking loop error:', err);
+      console.error('Detection frame error:', err);
     }
 
     if (isScanning) {
       animationFrameRef.current = requestAnimationFrame(runDetectionLoop);
     }
-  }, [isScanning, detectorType, students, distanceThreshold, onAttendanceMarked]);
+  }, [isScanning, detectorType, students, distanceThreshold, phoneDetectionEnabled, phoneSensitivity, onAttendanceMarked]);
 
   useEffect(() => {
     if (isScanning) {
@@ -367,52 +413,109 @@ export default function LiveScanner({
   const studentsInFrame = Object.values(sessionStudents).filter((s) => s.isPresentInFrame);
   const studentsExited = Object.values(sessionStudents).filter((s) => !s.isPresentInFrame);
 
-  // Session-wise CSV download
+  // Accurate Session CSV Generation
   const handleDownloadSessionCSV = () => {
     const allSession = Object.values(sessionStudents);
     if (allSession.length === 0) {
-      alert('No students recorded in this session yet.');
+      alert('No students have been recorded in this session yet.');
       return;
     }
 
-    const headers = [
-      'Student ID',
-      'Student Name',
-      'Current Status',
-      'Entry Time',
-      'Exit Time',
-      'Duration (Minutes)',
-      'Live Emotion',
-      'Phone Distraction Warnings',
+    const sessionDate = new Date(sessionStartTime).toISOString().slice(0, 10);
+    const sessionStartStr = new Date(sessionStartTime).toLocaleTimeString();
+    const exportTimeStr = new Date().toLocaleTimeString();
+
+    // 1. Session Audit Header
+    const metaLines = [
+      '========================================================================================',
+      'VERIFACE - CLASSROOM ATTENDANCE & ATTENTION AUDIT REPORT',
+      `Session Date: ${sessionDate}`,
+      `Session Started: ${sessionStartStr}`,
+      `Report Exported: ${exportTimeStr}`,
+      `Session Elapsed: ${formatTimer(sessionDurationSec)}`,
+      `Total Students Enrolled: ${students.length}`,
+      `Total Students Present in Session: ${allSession.length}`,
+      `Current In-Frame Students: ${studentsInFrame.length}`,
+      `Total Mobile Phone Incidents: ${phoneAlerts.length}`,
+      '========================================================================================',
+      '',
     ];
 
+    // 2. Column Headers
+    const headers = [
+      'Student Name',
+      'Student ID / USN',
+      'Department',
+      'Status in Class',
+      'First Entry Time',
+      'Exit Time',
+      'Duration (Formatted)',
+      'Duration (Minutes Decimal)',
+      'Phone Distraction Count',
+      'Phone Warning Flag',
+      'Dominant Emotion',
+      'Neutral %',
+      'Happy %',
+      'Sad %',
+      'Angry %',
+      'Fearful %',
+      'Disgusted %',
+      'Surprised %',
+    ];
+
+    // 3. Student Detail Rows
     const rows = allSession.map((s) => {
-      const entryStr = new Date(s.entryTime).toLocaleTimeString();
-      const exitStr = s.exitTime ? new Date(s.exitTime).toLocaleTimeString() : 'Still In Frame';
-      const durationMin = Math.round((((s.exitTime || Date.now()) - s.entryTime) / 60000) * 10) / 10;
+      const entryStr = new Date(s.firstEntryTime).toLocaleTimeString();
+      const exitStr = s.exitTime ? new Date(s.exitTime).toLocaleTimeString() : 'Still Present In Frame';
+      
+      const activeSec = s.activeSeconds || Math.max(1, Math.floor(((s.exitTime || Date.now()) - s.firstEntryTime) / 1000));
+      const durMin = Math.floor(activeSec / 60);
+      const durSec = activeSec % 60;
+      const formattedDuration = `${durMin}m ${durSec}s`;
+      const decimalMinutes = (activeSec / 60).toFixed(1);
+
+      // Emotion distribution breakdown
+      const hist = s.emotionHistory || {};
+      const totalEmoFrames = Object.values(hist).reduce((a, b) => a + b, 0) || 1;
+      const emoPct = (key) => (((hist[key] || 0) / totalEmoFrames) * 100).toFixed(1);
+
+      const dominantEmoLabel = s.currentEmotion?.label || 'Neutral';
+      const phoneFlag = s.phoneViolations > 0 ? `⚠️ Flagged (${s.phoneViolations}x)` : 'Clean';
+
       return [
-        `"${s.student_id}"`,
         `"${s.student_name}"`,
-        s.isPresentInFrame ? 'In Frame' : 'Left Session',
+        `"${s.student_id}"`,
+        `"${s.department || 'General'}"`,
+        s.isPresentInFrame ? 'Present In Frame' : 'Left Session',
         `"${entryStr}"`,
         `"${exitStr}"`,
-        durationMin,
-        `"${s.currentEmotion?.label || 'Neutral'}"`,
+        `"${formattedDuration}"`,
+        decimalMinutes,
         s.phoneViolations || 0,
+        `"${phoneFlag}"`,
+        `"${dominantEmoLabel}"`,
+        emoPct('neutral'),
+        emoPct('happy'),
+        emoPct('sad'),
+        emoPct('angry'),
+        emoPct('fearful'),
+        emoPct('disgusted'),
+        emoPct('surprised'),
       ].join(',');
     });
 
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const csvContent = [...metaLines, headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Class_Session_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+    link.download = `VeriFace_Session_Report_${sessionDate}_${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')}.csv`;
     link.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleResetSession = () => {
-    if (window.confirm('Reset current session records?')) {
+    if (window.confirm('Reset current session records? This will clear active session timestamps.')) {
       setSessionStudents({});
       setPhoneAlerts([]);
       setSessionStartTime(Date.now());
@@ -434,7 +537,7 @@ export default function LiveScanner({
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Clock size={16} color="var(--primary)" />
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Session Time:</span>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Session Clock:</span>
             <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.95rem' }}>
               {formatTimer(sessionDurationSec)}
             </span>
@@ -462,7 +565,7 @@ export default function LiveScanner({
             <span>Download Session CSV</span>
           </button>
 
-          <button className="btn btn-outline" onClick={handleResetSession} title="Reset session">
+          <button className="btn btn-outline" onClick={handleResetSession} title="Start new session">
             <RefreshCw size={15} />
             <span>New Session</span>
           </button>
@@ -580,21 +683,47 @@ export default function LiveScanner({
               </button>
             </div>
 
-            {/* Sensitivity Slider */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Match Strictness:</span>
-              <input
-                type="range"
-                min="0.45"
-                max="0.65"
-                step="0.01"
-                value={distanceThreshold}
-                onChange={(e) => onThresholdChange && onThresholdChange(parseFloat(e.target.value))}
-                style={{ width: '85px', accentColor: 'var(--primary)' }}
-              />
-              <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-                {distanceThreshold.toFixed(2)}
-              </span>
+            {/* Phone Detection & Match Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={phoneDetectionEnabled}
+                  onChange={(e) => setPhoneDetectionEnabled(e.target.checked)}
+                  style={{ accentColor: 'var(--danger)', width: '15px', height: '15px' }}
+                />
+                <span style={{ color: phoneDetectionEnabled ? '#f87171' : 'var(--text-muted)', fontWeight: 600 }}>
+                  Phone Watch
+                </span>
+              </label>
+
+              {phoneDetectionEnabled && (
+                <select
+                  value={phoneSensitivity}
+                  onChange={(e) => setPhoneSensitivity(e.target.value)}
+                  className="input-field"
+                  style={{ padding: '0.3rem 0.5rem', fontSize: '0.75rem', width: 'auto' }}
+                  title="Phone Detection Sensitivity"
+                >
+                  <option value="balanced">Balanced</option>
+                  <option value="high">High Sensitivity</option>
+                  <option value="strict">Strict</option>
+                </select>
+              )}
+
+              {/* Sensitivity Slider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Match:</span>
+                <input
+                  type="range"
+                  min="0.45"
+                  max="0.65"
+                  step="0.01"
+                  value={distanceThreshold}
+                  onChange={(e) => onThresholdChange && onThresholdChange(parseFloat(e.target.value))}
+                  style={{ width: '75px', accentColor: 'var(--primary)' }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -608,7 +737,7 @@ export default function LiveScanner({
               <div>
                 <h4 style={{ fontSize: '0.95rem', marginBottom: '0.15rem' }}>Currently In Frame</h4>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                  Students detected in the camera right now
+                  Students detected in camera right now
                 </p>
               </div>
               <span className="badge badge-green">
@@ -624,9 +753,10 @@ export default function LiveScanner({
                 </div>
               ) : (
                 studentsInFrame.map((st) => {
-                  const entryTimeStr = new Date(st.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                  const durationMins = Math.floor((Date.now() - st.entryTime) / 60000);
-                  const durationSecs = Math.floor(((Date.now() - st.entryTime) % 60000) / 1000);
+                  const entryTimeStr = new Date(st.firstEntryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  const activeSec = st.activeSeconds || Math.floor((Date.now() - st.firstEntryTime) / 1000);
+                  const durationMins = Math.floor(activeSec / 60);
+                  const durationSecs = activeSec % 60;
                   const emo = st.currentEmotion || EMOTIONS.neutral;
 
                   return (
