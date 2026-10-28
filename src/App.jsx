@@ -9,6 +9,7 @@ import AttendanceLogs from './components/AttendanceLogs';
 import SettingsModal from './components/SettingsModal';
 import AuthModal from './components/AuthModal';
 import { loadFaceModels, DetectorType } from './services/faceEngine';
+import { CameraSource } from './components/LiveScanner';
 import { loadPhoneDetector } from './services/phoneDetector';
 import { getStudents, getAttendanceRecords } from './services/storageService';
 import { getCurrentUser, signOutUser, onAuthStateChange } from './services/authService';
@@ -34,12 +35,15 @@ export default function App() {
   const [todayAttendance, setTodayAttendance] = useState([]);
 
   // System Settings
-  const [detectorType, setDetectorType] = useState(DetectorType.TINY_FACE_DETECTOR);
+  const [detectorType, setDetectorType] = useState(DetectorType.SSD_MOBILENET_V1); // ROOT FIX: SSD default for 30+ faces
   const [phoneDetectionEnabled, setPhoneDetectionEnabled] = useState(true);
   const [phoneSensitivity, setPhoneSensitivity] = useState('balanced');
-  const [distanceThreshold, setDistanceThreshold] = useState(0.55);
+  const [distanceThreshold, setDistanceThreshold] = useState(0.50); // ROOT FIX: tighter default threshold
   const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Camera source for CCTV/IP camera support
+  const [cameraSource, setCameraSource] = useState(CameraSource.WEBCAM);
+  const [ipCameraUrl, setIpCameraUrl] = useState('');
 
   // 1. Check initial user auth state
   useEffect(() => {
@@ -230,6 +234,8 @@ export default function App() {
             phoneSensitivity={phoneSensitivity}
             distanceThreshold={distanceThreshold}
             soundAlertsEnabled={soundAlertsEnabled}
+            cameraSource={cameraSource}
+            ipCameraUrl={ipCameraUrl}
           />
         )}
 

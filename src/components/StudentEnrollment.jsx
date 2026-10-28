@@ -11,7 +11,7 @@ import {
   Plus,
   RefreshCw
 } from 'lucide-react';
-import { detectSingleFaceDescriptor, DetectorType } from '../services/faceEngine';
+import { detectSingleFaceDescriptor } from '../services/faceEngine';
 import { saveStudent, deleteStudent } from '../services/storageService';
 import { playCaptureSound, playSuccessChime } from '../utils/audio';
 
@@ -97,7 +97,7 @@ export default function StudentEnrollment({ students, onStudentUpdated, modelsRe
     setStatusMessage({ type: 'info', text: 'Detecting face...' });
 
     try {
-      const result = await detectSingleFaceDescriptor(videoRef.current, DetectorType.SSD_MOBILENET_V1);
+      const result = await detectSingleFaceDescriptor(videoRef.current);
 
       if (!result) {
         setStatusMessage({
@@ -135,12 +135,28 @@ export default function StudentEnrollment({ students, onStudentUpdated, modelsRe
         setAvatarPreview(capturedPhoto);
       }
 
+      // Cap at 5 samples — more than 5 provides diminishing returns and inflates storage
+      const MAX_SAMPLES = 5;
+      if (descriptors.length >= MAX_SAMPLES) {
+        setStatusMessage({
+          type: 'error',
+          text: `Maximum ${MAX_SAMPLES} face samples already captured. That's enough for high accuracy recognition.`,
+        });
+        setIsProcessing(false);
+        return;
+      }
+
       const updatedDescriptors = [...descriptors, result.descriptor];
       setDescriptors(updatedDescriptors);
 
+      const remaining = MAX_SAMPLES - updatedDescriptors.length;
       setStatusMessage({
         type: 'success',
-        text: `Photo captured successfully! (${updatedDescriptors.length} sample${updatedDescriptors.length > 1 ? 's' : ''} saved)`,
+        text: updatedDescriptors.length < 3
+          ? `✓ Sample ${updatedDescriptors.length}/5 captured! Turn your head slightly and take another photo for better accuracy.`
+          : remaining > 0
+          ? `✓ ${updatedDescriptors.length} samples captured! ${remaining} more optional (good angle variety = best recognition).`
+          : `✓ 5 samples captured — maximum accuracy achieved! You can now save.`,
       });
     } catch (err) {
       console.error('Capture error:', err);
@@ -162,16 +178,22 @@ export default function StudentEnrollment({ students, onStudentUpdated, modelsRe
       const img = new Image();
       img.onload = async () => {
         try {
-          const result = await detectSingleFaceDescriptor(img, DetectorType.SSD_MOBILENET_V1);
+          const result = await detectSingleFaceDescriptor(img);
           if (!result) {
-            setStatusMessage({ type: 'error', text: 'No face found in this image. Please upload a clear portrait.' });
+            setStatusMessage({ type: 'error', text: 'No face found in this image. Please upload a clear, well-lit portrait photo.' });
             return;
           }
 
           playCaptureSound();
-          setDescriptors([result.descriptor]);
-          setAvatarPreview(event.target.result);
-          setStatusMessage({ type: 'success', text: 'Face recognized and saved from image!' });
+          // ROOT FIX: ADD to existing descriptors, not replace.
+          // Previously this line wiped all webcam samples when uploading a photo.
+          setDescriptors((prev) => {
+            const MAX_SAMPLES = 5;
+            if (prev.length >= MAX_SAMPLES) return prev;
+            return [...prev, result.descriptor];
+          });
+          if (!avatarPreview) setAvatarPreview(event.target.result);
+          setStatusMessage({ type: 'success', text: 'Face recognized from image — added as a sample. You can upload more or take webcam photos.' });
         } catch (err) {
           setStatusMessage({ type: 'error', text: 'Failed to process image: ' + err.message });
         }
@@ -332,9 +354,10 @@ export default function StudentEnrollment({ students, onStudentUpdated, modelsRe
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <div>
-                  <h4 style={{ fontSize: '0.95rem', marginBottom: '0.15rem' }}>Student Face Photo</h4>
+                  <h4 style={{ fontSize: '0.95rem', marginBottom: '0.15rem' }}>Student Face Photos</h4>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                    Capture from webcam or upload a clear picture
+                    Capture <strong>3–5 photos</strong> from slightly different angles for best recognition accuracy.
+                    More samples = more reliable detection in a classroom crowd.
                   </p>
                 </div>
 

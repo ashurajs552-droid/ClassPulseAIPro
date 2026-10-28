@@ -146,22 +146,22 @@ CREATE POLICY "Allow public all on attendance" ON public.attendance_records FOR 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <button
               type="button"
-              className={`btn ${detectorType === DetectorType.TINY_FACE_DETECTOR ? 'btn-primary' : 'btn-outline'}`}
-              onClick={() => onDetectorTypeChange(DetectorType.TINY_FACE_DETECTOR)}
-              style={{ padding: '0.65rem 0.85rem', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}
-            >
-              <span style={{ fontWeight: 600 }}>30+ FPS Smooth Tracking</span>
-              <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>Fast real-time tracking (TinyFace)</span>
-            </button>
-
-            <button
-              type="button"
               className={`btn ${detectorType === DetectorType.SSD_MOBILENET_V1 ? 'btn-primary' : 'btn-outline'}`}
               onClick={() => onDetectorTypeChange(DetectorType.SSD_MOBILENET_V1)}
               style={{ padding: '0.65rem 0.85rem', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}
             >
-              <span style={{ fontWeight: 600 }}>High Precision Mode</span>
-              <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>Detailed features (SSD MobileNet)</span>
+              <span style={{ fontWeight: 600 }}>⭐ High Accuracy — 30+ Faces (Recommended)</span>
+              <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>SSD MobileNet · Best for classrooms &amp; CCTV</span>
+            </button>
+
+            <button
+              type="button"
+              className={`btn ${detectorType === DetectorType.TINY_FACE_DETECTOR ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => onDetectorTypeChange(DetectorType.TINY_FACE_DETECTOR)}
+              style={{ padding: '0.65rem 0.85rem', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}
+            >
+              <span style={{ fontWeight: 600 }}>Fast Mode — Close Range</span>
+              <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>TinyFace · Best for 1:1 webcam, up to ~8 faces</span>
             </button>
           </div>
         </div>

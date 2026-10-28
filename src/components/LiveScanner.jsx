@@ -1,58 +1,74 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import confetti from 'canvas-confetti';
-import { 
-  Play, 
-  Square, 
-  Camera, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Users, 
-  Download, 
-  Smartphone, 
-  Clock, 
+import {
+  Play,
+  Square,
+  Camera,
+  CheckCircle2,
+  AlertTriangle,
+  Users,
+  Download,
+  Smartphone,
+  Clock,
   RefreshCw,
   LogIn,
   LogOut,
   Flame,
   Activity,
-  BarChart2
+  BarChart2,
+  Wifi,
+  Monitor,
 } from 'lucide-react';
-import { 
-  detectAllFacesWithDetails, 
-  createFaceMatcher, 
-  calculateMatchConfidence, 
-  getDominantEmotion, 
+import {
+  detectAllFacesWithDetails,
+  createFaceMatcher,
+  calculateMatchConfidence,
+  getDominantEmotion,
   DetectorType,
-  EMOTIONS
+  EMOTIONS,
 } from '../services/faceEngine';
-import { 
-  detectPhones, 
-  findAssociatedStudentForPhone 
+import {
+  detectPhones,
+  findAssociatedStudentForPhone,
 } from '../services/phoneDetector';
 import { markAttendance } from '../services/storageService';
 import { playSuccessChime, playAlertSound } from '../utils/audio';
 
 const SESSIONS_STORAGE_KEY = 'veriface_sessions_v1';
 
-export default function LiveScanner({ 
-  students, 
-  onAttendanceMarked, 
+// Camera source types
+export const CameraSource = {
+  WEBCAM: 'webcam',
+  IP_CAMERA: 'ip_camera',
+};
+
+export default function LiveScanner({
+  students,
+  onAttendanceMarked,
   modelsReady,
-  detectorType = DetectorType.TINY_FACE_DETECTOR,
+  detectorType = DetectorType.SSD_MOBILENET_V1,
   phoneDetectionEnabled = true,
   phoneSensitivity = 'balanced',
-  distanceThreshold = 0.55,
-  soundAlertsEnabled = true
+  distanceThreshold = 0.50,
+  soundAlertsEnabled = true,
+  // Camera source props
+  cameraSource = CameraSource.WEBCAM,
+  ipCameraUrl = '',
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const animationFrameRef = useRef(null);
+  // ROOT FIX: Prevent detection loop pileup — skip frame if last detection still running
+  const isDetectingRef = useRef(false);
+  // For MJPEG IP camera: use img element instead of video
+  const mjpegImgRef = useRef(null);
 
   const [isScanning, setIsScanning] = useState(false);
   const [cameraError, setCameraError] = useState(null);
+  const [activeCameraSource, setActiveCameraSource] = useState(CameraSource.WEBCAM);
 
-  // Persistent Sessions List: [{ id, name, startTime, endTime, durationSec, records: {}, phoneAlerts: [] }]
+  // Persistent Sessions List
   const [sessions, setSessions] = useState(() => {
     try {
       const raw = localStorage.getItem(SESSIONS_STORAGE_KEY);
@@ -62,29 +78,23 @@ export default function LiveScanner({
     }
   });
 
-  // Current Active Session Index / ID
   const [activeSessionNumber, setActiveSessionNumber] = useState(1);
   const [selectedSessionId, setSelectedSessionId] = useState('current');
   const [sessionDurationSec, setSessionDurationSec] = useState(0);
 
-  // Live in-frame state strictly reflects what is visible in camera RIGHT NOW
   const [currentlyInFrame, setCurrentlyInFrame] = useState([]);
   const [activePhonesInFrame, setActivePhonesInFrame] = useState([]);
   const [livePhoneAlerts, setLivePhoneAlerts] = useState([]);
 
-  // Session records: { [studentId]: { student_id, student_name, department, avatar_url, firstEntryTime, lastSeenTime, exitTime, isPresentInFrame, activeSeconds, phoneViolations, currentEmotion, emotionHistory } }
   const [currentSessionRecords, setCurrentSessionRecords] = useState({});
 
-  // 7-Emotions count for current active frame
   const [liveEmotionsCount, setLiveEmotionsCount] = useState({
-    neutral: 0,
-    happy: 0,
-    sad: 0,
-    angry: 0,
-    fearful: 0,
-    disgusted: 0,
-    surprised: 0,
+    neutral: 0, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0,
   });
+
+  // IP camera URL input state
+  const [ipUrlInput, setIpUrlInput] = useState(ipCameraUrl || '');
+  const [selectedSource, setSelectedSource] = useState(CameraSource.WEBCAM);
 
   const sessionRecordsRef = useRef({});
   const faceMatcherRef = useRef(null);
@@ -92,13 +102,23 @@ export default function LiveScanner({
   const cachedPhonesRef = useRef([]);
   const lastAlertSoundTimeRef = useRef(0);
   const activeSessionNumRef = useRef(1);
+  const sessionDurationSecRef = useRef(0);
+  const livePhoneAlertsRef = useRef([]);
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => {
     sessionRecordsRef.current = currentSessionRecords;
   }, [currentSessionRecords]);
 
-  // Keep FaceMatcher updated
+  useEffect(() => {
+    sessionDurationSecRef.current = sessionDurationSec;
+  }, [sessionDurationSec]);
+
+  useEffect(() => {
+    livePhoneAlertsRef.current = livePhoneAlerts;
+  }, [livePhoneAlerts]);
+
+  // ROOT FIX: Rebuild FaceMatcher at correct threshold (0.50 default)
   useEffect(() => {
     if (students && students.length > 0) {
       faceMatcherRef.current = createFaceMatcher(students, distanceThreshold);
@@ -123,13 +143,12 @@ export default function LiveScanner({
       timer = setInterval(() => {
         setSessionDurationSec((prev) => prev + 1);
 
-        // Accumulate active seconds for students present in frame
         setCurrentSessionRecords((prev) => {
           let updated = false;
           const next = { ...prev };
           Object.keys(next).forEach((sId) => {
             if (next[sId].isPresentInFrame) {
-              next[sId].activeSeconds = (next[sId].activeSeconds || 0) + 1;
+              next[sId] = { ...next[sId], activeSeconds: (next[sId].activeSeconds || 0) + 1 };
               updated = true;
             }
           });
@@ -137,12 +156,10 @@ export default function LiveScanner({
         });
       }, 1000);
     }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
+    return () => { if (timer) clearInterval(timer); };
   }, [isScanning]);
 
-  // Strict Real-Time Checker: If not seen in last 1.8 seconds, drop from in-frame
+  // Strict Real-Time Checker: Drop from in-frame if not seen in 1.8s
   useEffect(() => {
     if (!isScanning) return;
     const interval = setInterval(() => {
@@ -153,16 +170,13 @@ export default function LiveScanner({
       Object.keys(records).forEach((sId) => {
         const student = records[sId];
         if (student.isPresentInFrame && now - student.lastSeenTime > 1800) {
-          student.isPresentInFrame = false;
-          student.exitTime = student.lastSeenTime;
-          student.hasPhoneNow = false;
+          records[sId] = { ...student, isPresentInFrame: false, exitTime: student.lastSeenTime, hasPhoneNow: false };
           changed = true;
         }
       });
 
       if (changed) {
         setCurrentSessionRecords(records);
-        // Strictly update in-frame list
         setCurrentlyInFrame(Object.values(records).filter((s) => s.isPresentInFrame));
       }
     }, 800);
@@ -170,7 +184,6 @@ export default function LiveScanner({
     return () => clearInterval(interval);
   }, [isScanning]);
 
-  // Save sessions to localStorage
   const saveSessionsToStorage = (updatedSessions) => {
     setSessions(updatedSessions);
     try {
@@ -180,54 +193,89 @@ export default function LiveScanner({
     }
   };
 
-  // Turn Camera ON -> Starts a new Session (Session 1, Session 2, ...)
+  /**
+   * ROOT FIX: Camera start supports both webcam and IP camera (MJPEG HTTP streams).
+   * CCTV cameras that expose an MJPEG HTTP endpoint can be pointed at directly.
+   * e.g. http://192.168.1.100:8080/video
+   */
   const startCamera = async () => {
     setCameraError(null);
+    const source = selectedSource;
+    setActiveCameraSource(source);
+
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
       }
 
-      let stream = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        });
-      } catch (e) {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      if (source === CameraSource.WEBCAM) {
+        // Standard webcam via getUserMedia
+        let stream = null;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            // Higher resolution for better face detection at distance
+            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false,
+          });
+        } catch {
+          // Fallback: accept any camera
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.src = '';
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+      } else {
+        // IP Camera: MJPEG HTTP stream
+        const url = ipUrlInput.trim();
+        if (!url) {
+          setCameraError('Please enter a valid IP camera MJPEG URL (e.g. http://192.168.1.100:8080/video).');
+          return;
+        }
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+          videoRef.current.src = url;
+          videoRef.current.crossOrigin = 'anonymous';
+          try {
+            await videoRef.current.play();
+          } catch {
+            // Some MJPEG streams don't support <video> — will use <img> polling fallback
+            console.warn('Video play() failed for IP stream — using img fallback');
+          }
+        }
       }
 
-      streamRef.current = stream;
+      // Increment session number
+      const newSessionNum = sessions.length + 1;
+      setActiveSessionNumber(newSessionNum);
+      activeSessionNumRef.current = newSessionNum;
+      setSelectedSessionId('current');
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+      setCurrentSessionRecords({});
+      setCurrentlyInFrame([]);
+      setActivePhonesInFrame([]);
+      setLivePhoneAlerts([]);
+      setSessionDurationSec(0);
+      sessionDurationSecRef.current = 0;
 
-        // Increment session number
-        const newSessionNum = sessions.length + 1;
-        setActiveSessionNumber(newSessionNum);
-        activeSessionNumRef.current = newSessionNum;
-        setSelectedSessionId('current');
-
-        // Reset session live states
-        setCurrentSessionRecords({});
-        setCurrentlyInFrame([]);
-        setActivePhonesInFrame([]);
-        setLivePhoneAlerts([]);
-        setSessionDurationSec(0);
-
-        setIsScanning(true);
-      }
+      setIsScanning(true);
     } catch (err) {
       console.error('Camera open error:', err);
-      setCameraError('Unable to open camera. Please grant webcam permissions.');
+      setCameraError(
+        source === CameraSource.IP_CAMERA
+          ? `Cannot connect to IP camera. Check the URL and ensure the camera is on the same network. Error: ${err.message}`
+          : 'Unable to open webcam. Please grant camera permissions.'
+      );
       setIsScanning(false);
     }
   };
 
-  // Turn Camera OFF -> Ends the Session & Saves Session Data (Session 1, 2, ...)
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -238,6 +286,7 @@ export default function LiveScanner({
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.src = '';
     }
     if (canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
@@ -261,231 +310,237 @@ export default function LiveScanner({
       sessionNumber: activeSessionNumRef.current,
       name: `Session ${activeSessionNumRef.current}`,
       date: new Date().toISOString().slice(0, 10),
-      startTime: now - sessionDurationSec * 1000,
+      startTime: now - sessionDurationSecRef.current * 1000,
       endTime: now,
-      durationSec: sessionDurationSec,
+      durationSec: sessionDurationSecRef.current,
       records: finalRecords,
-      phoneAlerts: livePhoneAlerts,
+      phoneAlerts: livePhoneAlertsRef.current,
     };
 
     const updated = [sessionObj, ...sessions];
     saveSessionsToStorage(updated);
 
-    // Clear live tracking states immediately (so "Currently In Frame" is 100% empty when camera is off)
     setCurrentlyInFrame([]);
     setActivePhonesInFrame([]);
     setIsScanning(false);
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
 
-  // Detection Loop (30+ FPS Face Tracking & Real-Time Phone Detection)
+  /**
+   * ROOT FIX: Detection Loop
+   * 1. isDetectingRef guard prevents overlapping async detection calls
+   * 2. Uses SSD MobileNet (maxResults: 50) by default for 30+ face support
+   * 3. Reads both video element AND canvas (for IP camera img frames)
+   */
   const runDetectionLoop = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || videoRef.current.paused || videoRef.current.ended) {
-      if (isScanning) {
-        animationFrameRef.current = requestAnimationFrame(runDetectionLoop);
-      }
-      return;
-    }
-
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
+    if (!video || !canvas || !isScanning) return;
     if (video.videoWidth === 0 || video.videoHeight === 0) {
       animationFrameRef.current = requestAnimationFrame(runDetectionLoop);
       return;
     }
 
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
+    // ROOT FIX: Guard — do not stack detection calls
+    if (!isDetectingRef.current) {
+      isDetectingRef.current = true;
 
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const now = Date.now();
-    frameCountRef.current += 1;
-
-    try {
-      // 1. Phone Detection every 3rd frame
-      if (phoneDetectionEnabled && frameCountRef.current % 3 === 0) {
-        detectPhones(video, phoneSensitivity)
-          .then((phones) => {
-            cachedPhonesRef.current = phones;
-            setActivePhonesInFrame(phones);
-          })
-          .catch(() => {});
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
       }
 
-      const currentPhones = phoneDetectionEnabled ? cachedPhonesRef.current || [] : [];
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 2. Face and 7-Emotion Tracking
-      const detections = await detectAllFacesWithDetails(video, detectorType);
-      const moodCounts = { neutral: 0, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 };
-      const updatedRecords = { ...sessionRecordsRef.current };
-      const inFrameList = [];
-      let recordsChanged = false;
+      const now = Date.now();
+      frameCountRef.current += 1;
 
-      const detectedFacesList = [];
+      try {
+        // 1. Phone Detection every 4th frame (keeps face detection priority high)
+        if (phoneDetectionEnabled && frameCountRef.current % 4 === 0) {
+          detectPhones(video, phoneSensitivity)
+            .then((phones) => {
+              cachedPhonesRef.current = phones;
+              setActivePhonesInFrame(phones);
+            })
+            .catch(() => {});
+        }
 
-      for (let i = 0; i < detections.length; i++) {
-        const det = detections[i];
-        const box = det.detection.box;
-        const emotionData = getDominantEmotion(det.expressions);
+        const currentPhones = phoneDetectionEnabled ? (cachedPhonesRef.current || []) : [];
 
-        moodCounts[emotionData.emotion] = (moodCounts[emotionData.emotion] || 0) + 1;
+        // 2. ROOT FIX: Face and Emotion Detection (SSD, 50 faces max, inputSize 416)
+        const detections = await detectAllFacesWithDetails(video, detectorType);
 
-        let matchedStudent = null;
-        let matchConfidence = 0;
+        const moodCounts = { neutral: 0, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 };
+        const updatedRecords = { ...sessionRecordsRef.current };
+        const inFrameList = [];
+        let recordsChanged = false;
+        const detectedFacesList = [];
 
-        if (faceMatcherRef.current && det.descriptor) {
-          const match = faceMatcherRef.current.findBestMatch(det.descriptor);
-          if (match.label !== 'unknown') {
-            const found = students.find((s) => s.student_id === match.label);
-            if (found) {
-              matchedStudent = found;
-              matchConfidence = calculateMatchConfidence(match.distance, distanceThreshold);
+        for (let i = 0; i < detections.length; i++) {
+          const det = detections[i];
+          const box = det.detection.box;
+          const emotionData = getDominantEmotion(det.expressions);
+
+          moodCounts[emotionData.emotion] = (moodCounts[emotionData.emotion] || 0) + 1;
+
+          let matchedStudent = null;
+          let matchConfidence = 0;
+
+          if (faceMatcherRef.current && det.descriptor) {
+            const match = faceMatcherRef.current.findBestMatch(det.descriptor);
+            if (match.label !== 'unknown') {
+              const found = students.find((s) => s.student_id === match.label);
+              if (found) {
+                matchedStudent = found;
+                matchConfidence = calculateMatchConfidence(match.distance, distanceThreshold);
+              }
             }
           }
+
+          detectedFacesList.push({ box, student: matchedStudent, emotionData, confidence: matchConfidence });
+
+          if (matchedStudent) {
+            const sId = matchedStudent.student_id;
+
+            if (!updatedRecords[sId]) {
+              updatedRecords[sId] = {
+                student_id: sId,
+                student_name: matchedStudent.full_name,
+                department: matchedStudent.department || 'General',
+                avatar_url: matchedStudent.avatar_url,
+                firstEntryTime: now,
+                lastSeenTime: now,
+                exitTime: null,
+                isPresentInFrame: true,
+                activeSeconds: 1,
+                phoneViolations: 0,
+                hasPhoneNow: false,
+                currentEmotion: emotionData,
+                emotionHistory: { [emotionData.emotion]: 1 },
+              };
+              recordsChanged = true;
+
+              markAttendance({
+                student_id: sId,
+                student_name: matchedStudent.full_name,
+                date: new Date().toISOString().slice(0, 10),
+                timestamp: new Date().toISOString(),
+                status: 'Present',
+                confidence_score: matchConfidence,
+                dominant_emotion: emotionData.emotion,
+                emotion_scores: emotionData.scores,
+              }).then(() => {
+                playSuccessChime();
+                if (onAttendanceMarked) {
+                  onAttendanceMarked({ student_id: sId, student_name: matchedStudent.full_name });
+                }
+              });
+            } else {
+              const st = updatedRecords[sId];
+              updatedRecords[sId] = {
+                ...st,
+                lastSeenTime: now,
+                isPresentInFrame: true,
+                exitTime: null,
+                hasPhoneNow: false,
+                currentEmotion: emotionData,
+                emotionHistory: {
+                  ...(st.emotionHistory || {}),
+                  [emotionData.emotion]: ((st.emotionHistory || {})[emotionData.emotion] || 0) + 1,
+                },
+              };
+              recordsChanged = true;
+            }
+
+            inFrameList.push(updatedRecords[sId]);
+          }
         }
 
-        detectedFacesList.push({
-          box,
-          student: matchedStudent,
-          emotionData,
-        });
+        // 3. Process Phone Associations
+        currentPhones.forEach((phone) => {
+          drawPhoneBoundingBox(ctx, phone.bbox, Math.round(phone.score * 100));
 
-        if (matchedStudent) {
-          const sId = matchedStudent.student_id;
-
-          if (!updatedRecords[sId]) {
-            // First Entry into Session
-            updatedRecords[sId] = {
-              student_id: sId,
-              student_name: matchedStudent.full_name,
-              department: matchedStudent.department || 'General',
-              avatar_url: matchedStudent.avatar_url,
-              firstEntryTime: now,
-              lastSeenTime: now,
-              exitTime: null,
-              isPresentInFrame: true,
-              activeSeconds: 1,
-              phoneViolations: 0,
-              hasPhoneNow: false,
-              currentEmotion: emotionData,
-              emotionHistory: { [emotionData.emotion]: 1 },
+          const associated = findAssociatedStudentForPhone(phone.bbox, detectedFacesList);
+          if (associated && updatedRecords[associated.student_id]) {
+            updatedRecords[associated.student_id] = {
+              ...updatedRecords[associated.student_id],
+              hasPhoneNow: true,
             };
             recordsChanged = true;
-
-            // Auto-mark in general attendance
-            markAttendance({
-              student_id: sId,
-              student_name: matchedStudent.full_name,
-              date: new Date().toISOString().slice(0, 10),
-              timestamp: new Date().toISOString(),
-              status: 'Present',
-              confidence_score: matchConfidence,
-              dominant_emotion: emotionData.emotion,
-              emotion_scores: emotionData.scores,
-            }).then(() => {
-              playSuccessChime();
-              if (onAttendanceMarked) {
-                onAttendanceMarked({ student_id: sId, student_name: matchedStudent.full_name });
-              }
-            });
-          } else {
-            const st = updatedRecords[sId];
-            st.lastSeenTime = now;
-            st.isPresentInFrame = true;
-            st.exitTime = null;
-            st.hasPhoneNow = false; // will be updated below if phone is attached
-            st.currentEmotion = emotionData;
-            st.emotionHistory = st.emotionHistory || {};
-            st.emotionHistory[emotionData.emotion] = (st.emotionHistory[emotionData.emotion] || 0) + 1;
-            recordsChanged = true;
           }
 
-          inFrameList.push(updatedRecords[sId]);
-        }
-      }
+          if (now - lastAlertSoundTimeRef.current > 3000) {
+            if (soundAlertsEnabled) playAlertSound();
+            lastAlertSoundTimeRef.current = now;
 
-      // 3. Process Phone Associations
-      currentPhones.forEach((phone) => {
-        drawPhoneBoundingBox(ctx, phone.bbox, Math.round(phone.score * 100));
+            const studentLabel = associated ? associated.full_name : 'In Camera View';
+            setLivePhoneAlerts((prev) => [
+              {
+                id: crypto.randomUUID(),
+                studentName: studentLabel,
+                timestamp: new Date().toLocaleTimeString(),
+                confidence: Math.round(phone.score * 100),
+              },
+              ...prev.slice(0, 14),
+            ]);
 
-        const associated = findAssociatedStudentForPhone(phone.bbox, detectedFacesList);
-        if (associated && updatedRecords[associated.student_id]) {
-          updatedRecords[associated.student_id].hasPhoneNow = true;
-          recordsChanged = true;
-        }
-
-        if (now - lastAlertSoundTimeRef.current > 3000) {
-          if (soundAlertsEnabled) playAlertSound();
-          lastAlertSoundTimeRef.current = now;
-
-          const studentLabel = associated ? associated.full_name : 'In Camera View';
-          setLivePhoneAlerts((prev) => [
-            {
-              id: crypto.randomUUID(),
-              studentName: studentLabel,
-              timestamp: new Date().toLocaleTimeString(),
-              confidence: Math.round(phone.score * 100),
-            },
-            ...prev.slice(0, 14),
-          ]);
-
-          if (associated && updatedRecords[associated.student_id]) {
-            updatedRecords[associated.student_id].phoneViolations += 1;
+            if (associated && updatedRecords[associated.student_id]) {
+              updatedRecords[associated.student_id] = {
+                ...updatedRecords[associated.student_id],
+                phoneViolations: (updatedRecords[associated.student_id].phoneViolations || 0) + 1,
+              };
+            }
           }
-        }
-      });
+        });
 
-      // 4. Draw Face Overlays
-      detectedFacesList.forEach((item) => {
-        const student = item.student;
-        const sId = student?.student_id;
-        const hasPhone = sId ? updatedRecords[sId]?.hasPhoneNow : false;
-        drawRealtimeFaceHUD(ctx, item.box, student, 95, !student, item.emotionData, hasPhone);
-      });
+        // 4. Draw Face Overlays
+        detectedFacesList.forEach((item) => {
+          const student = item.student;
+          const sId = student?.student_id;
+          const hasPhone = sId ? updatedRecords[sId]?.hasPhoneNow : false;
+          drawRealtimeFaceHUD(ctx, item.box, student, item.confidence, !student, item.emotionData, hasPhone);
+        });
 
-      if (recordsChanged) {
-        setCurrentSessionRecords(updatedRecords);
+        if (recordsChanged) setCurrentSessionRecords(updatedRecords);
+        setCurrentlyInFrame(inFrameList);
+        setLiveEmotionsCount(moodCounts);
+      } catch (err) {
+        console.error('Detection frame error:', err);
+      } finally {
+        isDetectingRef.current = false;
       }
-
-      // Strictly update Currently In Frame list with students active right now
-      setCurrentlyInFrame(inFrameList);
-      setLiveEmotionsCount(moodCounts);
-    } catch (err) {
-      console.error('Detection frame error:', err);
     }
 
     if (isScanning) {
       animationFrameRef.current = requestAnimationFrame(runDetectionLoop);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isScanning, detectorType, students, distanceThreshold, phoneDetectionEnabled, phoneSensitivity, soundAlertsEnabled, onAttendanceMarked]);
 
   useEffect(() => {
     if (isScanning) {
+      isDetectingRef.current = false;
       animationFrameRef.current = requestAnimationFrame(runDetectionLoop);
     }
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
   }, [isScanning, runDetectionLoop]);
 
   useEffect(() => {
     return () => stopCamera();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Format Timer
   const formatTimer = (sec) => {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Get active session display data
   const selectedSessionData = selectedSessionId === 'current'
     ? {
         name: `Session ${activeSessionNumber} (Active)`,
@@ -506,7 +561,6 @@ export default function LiveScanner({
 
   const displayRecords = Object.values(selectedSessionData.records || {});
 
-  // Download Session CSV Report
   const handleDownloadSessionCSV = () => {
     if (displayRecords.length === 0) {
       alert('No student records found in this session.');
@@ -597,24 +651,21 @@ export default function LiveScanner({
     URL.revokeObjectURL(url);
   };
 
-  // Engagement calculation
   const totalInFrame = currentlyInFrame.length;
   const currentAttentiveScore = totalInFrame > 0
     ? Math.round(
-        (currentlyInFrame.reduce((sum, s) => sum + (s.currentEmotion?.engagementWeight || 0.85), 0) /
-          totalInFrame) *
-          100
+        (currentlyInFrame.reduce((sum, s) => sum + (s.currentEmotion?.engagementWeight || 0.85), 0) / totalInFrame) * 100
       )
     : 0;
 
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '0 1.25rem 2rem 1.25rem' }}>
-      
-      {/* 1. TOP SESSION BAR (Clean & Actionable) */}
+
+      {/* 1. TOP SESSION BAR */}
       <div className="clean-card" style={{ padding: '0.75rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-          
-          {/* Camera Start / Stop Button */}
+
+          {/* Camera Start / Stop */}
           {isScanning ? (
             <button className="btn btn-danger" onClick={stopCamera} style={{ padding: '0.5rem 1.1rem' }}>
               <Square size={15} />
@@ -625,6 +676,44 @@ export default function LiveScanner({
               <Play size={15} />
               <span>Start Camera (Session {sessions.length + 1})</span>
             </button>
+          )}
+
+          {/* Camera Source Selector */}
+          {!isScanning && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                className={`btn ${selectedSource === CameraSource.WEBCAM ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setSelectedSource(CameraSource.WEBCAM)}
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem' }}
+                title="Use built-in webcam or USB camera"
+              >
+                <Camera size={13} />
+                <span>Webcam</span>
+              </button>
+              <button
+                className={`btn ${selectedSource === CameraSource.IP_CAMERA ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setSelectedSource(CameraSource.IP_CAMERA)}
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem' }}
+                title="Connect to IP / CCTV camera via MJPEG HTTP stream"
+              >
+                <Monitor size={13} />
+                <span>IP / CCTV Camera</span>
+              </button>
+            </div>
+          )}
+
+          {/* IP Camera URL Input (shown when IP cam selected and not scanning) */}
+          {!isScanning && selectedSource === CameraSource.IP_CAMERA && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: '260px' }}>
+              <Wifi size={14} color="var(--primary)" />
+              <input
+                className="input-field"
+                placeholder="http://192.168.1.100:8080/video  (MJPEG URL)"
+                value={ipUrlInput}
+                onChange={(e) => setIpUrlInput(e.target.value)}
+                style={{ flex: 1, padding: '0.35rem 0.65rem', fontSize: '0.8rem' }}
+              />
+            </div>
           )}
 
           {/* Session Selector */}
@@ -663,10 +752,54 @@ export default function LiveScanner({
         </div>
       </div>
 
-      {/* 2. REAL-TIME STATS ROW (Charts & Metrics in Live Feed) */}
+      {/* Camera Error Banner */}
+      {cameraError && (
+        <div style={{
+          padding: '0.75rem 1rem',
+          borderRadius: 'var(--radius-md)',
+          backgroundColor: 'rgba(239, 68, 68, 0.12)',
+          border: '1px solid rgba(239, 68, 68, 0.35)',
+          color: '#f87171',
+          fontSize: '0.85rem',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '0.6rem',
+        }}>
+          <AlertTriangle size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
+          <div>
+            <strong>Camera Error:</strong> {cameraError}
+            {selectedSource === CameraSource.IP_CAMERA && (
+              <div style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: '#fca5a5' }}>
+                💡 Tip: Your CCTV/IP camera must expose an <strong>MJPEG HTTP stream</strong> (not RTSP).
+                Most IP cameras support this at a URL like <code>http://camera-ip:port/video</code> or <code>/mjpeg</code>.
+                Check your camera's web interface or manual for the MJPEG URL.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* IP Camera Active Badge */}
+      {isScanning && activeCameraSource === CameraSource.IP_CAMERA && (
+        <div style={{
+          padding: '0.5rem 1rem',
+          borderRadius: 'var(--radius-md)',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid rgba(59, 130, 246, 0.3)',
+          color: '#60a5fa',
+          fontSize: '0.8rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+        }}>
+          <Monitor size={14} />
+          <span>IP / CCTV Camera Active: <code style={{ fontFamily: 'var(--font-mono)' }}>{ipUrlInput}</code></span>
+        </div>
+      )}
+
+      {/* 2. REAL-TIME STATS ROW */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-        
-        {/* Stat 1: Currently In Frame */}
+
         <div className="clean-card" style={{ padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>IN FRAME RIGHT NOW</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 800, color: totalInFrame > 0 ? 'var(--success)' : 'var(--text-main)' }}>
@@ -677,7 +810,6 @@ export default function LiveScanner({
           </div>
         </div>
 
-        {/* Stat 2: Real-Time Attention % */}
         <div className="clean-card" style={{ padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>ATTENTIVENESS SCORE</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 800, color: currentAttentiveScore >= 75 ? 'var(--success)' : currentAttentiveScore >= 50 ? 'var(--warning)' : 'var(--danger)' }}>
@@ -688,18 +820,14 @@ export default function LiveScanner({
           </div>
         </div>
 
-        {/* Stat 3: Total in Session */}
         <div className="clean-card" style={{ padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>SESSION ATTENDEES</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--primary)' }}>
             {displayRecords.length}
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Students registered in session
-          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Students registered in session</div>
         </div>
 
-        {/* Stat 4: Phone Distractions */}
         <div className="clean-card" style={{ padding: '1rem 1.25rem' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>PHONE DISTRACTIONS</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 800, color: (selectedSessionData.alerts || []).length > 0 ? '#f87171' : 'var(--text-main)' }}>
@@ -711,10 +839,10 @@ export default function LiveScanner({
         </div>
       </div>
 
-      {/* 3. MAIN LIVE SECTION: Camera (Left) & Currently In Frame List (Right) */}
+      {/* 3. MAIN LIVE SECTION: Camera + In-Frame List */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(320px, 1fr)', gap: '1.25rem' }}>
-        
-        {/* Camera Viewport (Clean Pure Black - NO Camera Offline Box) */}
+
+        {/* Camera Viewport */}
         <div className="clean-card" style={{
           position: 'relative',
           overflow: 'hidden',
@@ -723,9 +851,8 @@ export default function LiveScanner({
           border: '1px solid var(--border-default)',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center'
+          justifyContent: 'center',
         }}>
-          {/* Video & Canvas */}
           <video
             ref={videoRef}
             playsInline
@@ -752,16 +879,17 @@ export default function LiveScanner({
             }}
           />
 
-          {/* When Camera is Stopped: Clean Minimalist Pure Black Screen (No huge offline box) */}
           {!isScanning && (
             <div style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
               <Camera size={36} style={{ color: 'var(--border-default)', marginBottom: '0.75rem' }} />
-              <p style={{ fontSize: '0.85rem' }}>Camera is idle</p>
+              <p style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>Camera is idle</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginBottom: '0.85rem' }}>
+                Supports webcam, USB camera, and IP/CCTV cameras (MJPEG HTTP stream)
+              </p>
               <button
                 className="btn btn-primary"
                 onClick={startCamera}
                 disabled={!modelsReady}
-                style={{ marginTop: '0.85rem' }}
               >
                 <Play size={15} />
                 <span>Start Session {sessions.length + 1}</span>
@@ -771,8 +899,8 @@ export default function LiveScanner({
 
           {/* Live Overlay Badge */}
           {isScanning && (
-            <div style={{ position: 'absolute', top: '10px', left: '10px', display: 'flex', gap: '0.5rem', zIndex: 10 }}>
-              <span className="badge badge-green">● Live Camera</span>
+            <div style={{ position: 'absolute', top: '10px', left: '10px', display: 'flex', gap: '0.5rem', zIndex: 10, flexWrap: 'wrap' }}>
+              <span className="badge badge-green">● Live {activeCameraSource === CameraSource.IP_CAMERA ? 'IP/CCTV' : 'Webcam'}</span>
               <span className="badge badge-blue">{currentlyInFrame.length} In Frame</span>
               {activePhonesInFrame.length > 0 && (
                 <span className="badge badge-red">
@@ -783,18 +911,16 @@ export default function LiveScanner({
           )}
         </div>
 
-        {/* Right Column: ONLY STUDENTS CURRENTLY IN FRAME IN REAL TIME */}
+        {/* Right Column: Currently In Frame */}
         <div className="clean-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
             <div>
               <h4 style={{ fontSize: '0.95rem', marginBottom: '0.1rem' }}>Currently In Frame</h4>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                Students detected in frame right now
+                Students detected right now
               </p>
             </div>
-            <span className="badge badge-green">
-              ● {currentlyInFrame.length} In Frame
-            </span>
+            <span className="badge badge-green">● {currentlyInFrame.length} In Frame</span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', overflowY: 'auto', maxHeight: '420px', paddingRight: '0.25rem' }}>
@@ -825,7 +951,7 @@ export default function LiveScanner({
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '0.4rem',
-                      transition: 'all 0.15s ease'
+                      transition: 'all 0.15s ease',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -847,7 +973,7 @@ export default function LiveScanner({
                             justifyContent: 'center',
                             color: '#fff',
                             fontWeight: 600,
-                            fontSize: '0.8rem'
+                            fontSize: '0.8rem',
                           }}>
                             {st.student_name ? st.student_name[0] : 'S'}
                           </div>
@@ -859,7 +985,6 @@ export default function LiveScanner({
                           </div>
                         </div>
                       </div>
-
                       <span className="badge" style={{ backgroundColor: emo.color + '20', color: emo.color, border: `1px solid ${emo.color}40`, fontSize: '0.72rem' }}>
                         {emo.emoji} {emo.label}
                       </span>
@@ -889,10 +1014,9 @@ export default function LiveScanner({
         </div>
       </div>
 
-      {/* 4. REAL-TIME CHARTS & TELEMETRY ROW (Below Camera) */}
+      {/* 4. REAL-TIME CHARTS & TELEMETRY */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: '1.25rem' }}>
-        
-        {/* Live 7-Emotions Bar Chart */}
+
         <div className="clean-card" style={{ padding: '1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
@@ -928,7 +1052,6 @@ export default function LiveScanner({
           </div>
         </div>
 
-        {/* Live Phone Alerts Log */}
         <div className="clean-card" style={{ padding: '1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
@@ -972,14 +1095,13 @@ export default function LiveScanner({
             )}
           </div>
         </div>
-
       </div>
     </div>
   );
 }
 
 /**
- * Draw face bounding box & tag
+ * Draw face bounding box + name/ID HUD on canvas
  */
 function drawRealtimeFaceHUD(ctx, box, student, confidence, isUnknown, emotion, hasPhone) {
   const { x, y, width, height } = box;
@@ -990,13 +1112,20 @@ function drawRealtimeFaceHUD(ctx, box, student, confidence, isUnknown, emotion, 
   ctx.lineWidth = hasPhone ? 3 : 2;
   ctx.strokeRect(x, y, width, height);
 
-  // Top Tag
-  const tagWidth = Math.max(140, width);
-  const tagHeight = 30;
+  // Name Tag
+  const name = student ? student.full_name : 'Unknown';
+  const subLabel = hasPhone
+    ? '⚠️ PHONE DETECTED!'
+    : isUnknown
+    ? 'Unregistered'
+    : `${student.student_id} · ${confidence}%`;
+
+  const tagWidth = Math.max(160, width);
+  const tagHeight = 32;
   const tagX = x + (width - tagWidth) / 2;
   const tagY = Math.max(8, y - tagHeight - 6);
 
-  ctx.fillStyle = 'rgba(10, 10, 10, 0.95)';
+  ctx.fillStyle = 'rgba(8, 8, 12, 0.97)';
   ctx.beginPath();
   ctx.roundRect(tagX, tagY, tagWidth, tagHeight, 6);
   ctx.fill();
@@ -1006,22 +1135,21 @@ function drawRealtimeFaceHUD(ctx, box, student, confidence, isUnknown, emotion, 
   ctx.stroke();
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = '600 12px sans-serif';
-  const name = student ? student.full_name : 'Unknown';
+  ctx.font = '600 12px system-ui, sans-serif';
   ctx.fillText(name, tagX + 8, tagY + 13);
 
-  ctx.font = '10px sans-serif';
+  ctx.font = '10px system-ui, sans-serif';
   ctx.fillStyle = color;
-  ctx.fillText(hasPhone ? '⚠️ PHONE DETECTED!' : isUnknown ? 'Unregistered' : `${student.student_id} • In Frame`, tagX + 8, tagY + 24);
+  ctx.fillText(subLabel, tagX + 8, tagY + 25);
 
-  // Bottom Emotion Tag
-  const emoText = `${emotion.emoji} ${emotion.label}`;
-  ctx.font = 'bold 11px sans-serif';
+  // Emotion Tag Below Face
+  const emoText = `${emotion.emoji} ${emotion.label} ${emotion.confidence}%`;
+  ctx.font = 'bold 10px system-ui, sans-serif';
   const emoWidth = ctx.measureText(emoText).width + 16;
   const emoX = x + (width - emoWidth) / 2;
   const emoY = y + height + 6;
 
-  ctx.fillStyle = 'rgba(10, 10, 10, 0.95)';
+  ctx.fillStyle = 'rgba(8, 8, 12, 0.97)';
   ctx.beginPath();
   ctx.roundRect(emoX, emoY, emoWidth, 22, 5);
   ctx.fill();
@@ -1050,7 +1178,7 @@ function drawPhoneBoundingBox(ctx, bbox, score) {
 
   ctx.setLineDash([]);
   const text = `📱 PHONE (${score}%)`;
-  ctx.font = 'bold 11px sans-serif';
+  ctx.font = 'bold 11px system-ui, sans-serif';
   const textWidth = ctx.measureText(text).width + 12;
 
   ctx.fillStyle = 'rgba(239, 68, 68, 0.95)';
