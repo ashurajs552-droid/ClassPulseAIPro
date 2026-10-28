@@ -28,6 +28,11 @@ import {
   EMOTIONS,
 } from '../services/faceEngine';
 import {
+  preprocessForDetection,
+  scaleBox,
+} from '../services/imagePreprocessor';
+import { FaceTracker } from '../services/faceTracker';
+import {
   detectPhones,
   findAssociatedStudentForPhone,
 } from '../services/phoneDetector';
@@ -98,6 +103,7 @@ export default function LiveScanner({
 
   const sessionRecordsRef = useRef({});
   const faceMatcherRef = useRef(null);
+  const faceTrackerRef = useRef(new FaceTracker());
   const frameCountRef = useRef(0);
   const cachedPhonesRef = useRef([]);
   const lastAlertSoundTimeRef = useRef(0);
@@ -262,6 +268,7 @@ export default function LiveScanner({
       setLivePhoneAlerts([]);
       setSessionDurationSec(0);
       sessionDurationSecRef.current = 0;
+      faceTrackerRef.current.reset();
 
       setIsScanning(true);
     } catch (err) {
@@ -322,6 +329,7 @@ export default function LiveScanner({
 
     setCurrentlyInFrame([]);
     setActivePhonesInFrame([]);
+    faceTrackerRef.current.reset();
     setIsScanning(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions]);
@@ -370,8 +378,39 @@ export default function LiveScanner({
 
         const currentPhones = phoneDetectionEnabled ? (cachedPhonesRef.current || []) : [];
 
-        // 2. ROOT FIX: Face and Emotion Detection (SSD, 50 faces max, inputSize 416)
-        const detections = await detectAllFacesWithDetails(video, detectorType);
+        // 2. ROOT FIX: Preprocessing for CCTV small faces, low/harsh light, contrast
+        const { canvas: preprocessedCanvas, upscaleFactor } = preprocessForDetection(video);
+
+        // Run SSD MobileNet detector on enhanced/upscaled canvas (50 faces max, 30+ classroom crowds)
+        const detections = await detectAllFacesWithDetails(preprocessedCanvas, detectorType);
+
+        // Map detections and scale bounding boxes back to original video canvas dimensions
+        const trackerInputs = detections.map((det) => {
+          const scaledBox = scaleBox(det.detection.box, upscaleFactor);
+          const emotionData = getDominantEmotion(det.expressions);
+
+          let rawLabel = null;
+          let distance = 1.0;
+
+          if (faceMatcherRef.current && det.descriptor) {
+            const match = faceMatcherRef.current.findBestMatch(det.descriptor);
+            distance = match.distance;
+            if (match.label !== 'unknown') {
+              rawLabel = match.label;
+            }
+          }
+
+          return {
+            box: scaledBox,
+            rawLabel,
+            distance,
+            emotionData,
+            rawDet: det,
+          };
+        });
+
+        // 3. ROOT FIX: Temporal Face Tracking (eliminates angle flickers & 1-frame false IDs)
+        const trackedResults = faceTrackerRef.current.update(trackerInputs);
 
         const moodCounts = { neutral: 0, happy: 0, sad: 0, angry: 0, fearful: 0, disgusted: 0, surprised: 0 };
         const updatedRecords = { ...sessionRecordsRef.current };
@@ -379,28 +418,41 @@ export default function LiveScanner({
         let recordsChanged = false;
         const detectedFacesList = [];
 
-        for (let i = 0; i < detections.length; i++) {
-          const det = detections[i];
-          const box = det.detection.box;
-          const emotionData = getDominantEmotion(det.expressions);
+        for (let i = 0; i < trackedResults.length; i++) {
+          const tracked = trackedResults[i];
+          const box = tracked.box;
+          const emotionData = tracked.emotionData || getDominantEmotion(null);
 
           moodCounts[emotionData.emotion] = (moodCounts[emotionData.emotion] || 0) + 1;
+
+          // Identity resolution:
+          // 1. Confirmed label from majority vote across rolling window
+          // 2. Or if tentative match matches an already active student in this session, keep them active
+          let activeStudentId = tracked.confirmedLabel;
+          if (!activeStudentId && tracked.tentativeLabel && updatedRecords[tracked.tentativeLabel]) {
+            activeStudentId = tracked.tentativeLabel;
+          }
 
           let matchedStudent = null;
           let matchConfidence = 0;
 
-          if (faceMatcherRef.current && det.descriptor) {
-            const match = faceMatcherRef.current.findBestMatch(det.descriptor);
-            if (match.label !== 'unknown') {
-              const found = students.find((s) => s.student_id === match.label);
-              if (found) {
-                matchedStudent = found;
-                matchConfidence = calculateMatchConfidence(match.distance, distanceThreshold);
-              }
+          if (activeStudentId) {
+            const found = students.find((s) => s.student_id === activeStudentId);
+            if (found) {
+              matchedStudent = found;
+              matchConfidence = calculateMatchConfidence(tracked.distance, distanceThreshold);
             }
           }
 
-          detectedFacesList.push({ box, student: matchedStudent, emotionData, confidence: matchConfidence });
+          const isVerifying = !matchedStudent && !!tracked.tentativeLabel && !tracked.isConfirmed;
+
+          detectedFacesList.push({
+            box,
+            student: matchedStudent,
+            emotionData,
+            confidence: matchConfidence,
+            isVerifying,
+          });
 
           if (matchedStudent) {
             const sId = matchedStudent.student_id;
@@ -459,7 +511,7 @@ export default function LiveScanner({
           }
         }
 
-        // 3. Process Phone Associations
+        // 4. Process Phone Associations
         currentPhones.forEach((phone) => {
           drawPhoneBoundingBox(ctx, phone.bbox, Math.round(phone.score * 100));
 
@@ -496,12 +548,12 @@ export default function LiveScanner({
           }
         });
 
-        // 4. Draw Face Overlays
+        // 5. Draw Face Overlays
         detectedFacesList.forEach((item) => {
           const student = item.student;
           const sId = student?.student_id;
           const hasPhone = sId ? updatedRecords[sId]?.hasPhoneNow : false;
-          drawRealtimeFaceHUD(ctx, item.box, student, item.confidence, !student, item.emotionData, hasPhone);
+          drawRealtimeFaceHUD(ctx, item.box, student, item.confidence, !student, item.emotionData, hasPhone, item.isVerifying);
         });
 
         if (recordsChanged) setCurrentSessionRecords(updatedRecords);
@@ -1103,9 +1155,13 @@ export default function LiveScanner({
 /**
  * Draw face bounding box + name/ID HUD on canvas
  */
-function drawRealtimeFaceHUD(ctx, box, student, confidence, isUnknown, emotion, hasPhone) {
+function drawRealtimeFaceHUD(ctx, box, student, confidence, isUnknown, emotion, hasPhone, isVerifying = false) {
   const { x, y, width, height } = box;
-  const color = hasPhone ? '#ef4444' : isUnknown ? '#f59e0b' : '#3b82f6';
+  const color = hasPhone
+    ? '#ef4444'
+    : isUnknown
+    ? (isVerifying ? '#38bdf8' : '#f59e0b')
+    : '#10b981';
 
   ctx.save();
   ctx.strokeStyle = color;
@@ -1113,9 +1169,16 @@ function drawRealtimeFaceHUD(ctx, box, student, confidence, isUnknown, emotion, 
   ctx.strokeRect(x, y, width, height);
 
   // Name Tag
-  const name = student ? student.full_name : 'Unknown';
+  const name = student
+    ? student.full_name
+    : isVerifying
+    ? 'Scanning Face...'
+    : 'Unknown';
+
   const subLabel = hasPhone
     ? '⚠️ PHONE DETECTED!'
+    : isVerifying
+    ? '🔍 Verifying ID...'
     : isUnknown
     ? 'Unregistered'
     : `${student.student_id} · ${confidence}%`;

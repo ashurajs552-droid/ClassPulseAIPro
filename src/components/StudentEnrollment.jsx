@@ -108,6 +108,15 @@ export default function StudentEnrollment({ students, onStudentUpdated, modelsRe
         return;
       }
 
+      if (result.error) {
+        setStatusMessage({
+          type: 'error',
+          text: result.message || 'Face quality check failed. Please adjust position.',
+        });
+        setIsProcessing(false);
+        return;
+      }
+
       playCaptureSound();
 
       // Create cropped avatar preview
@@ -181,6 +190,10 @@ export default function StudentEnrollment({ students, onStudentUpdated, modelsRe
           const result = await detectSingleFaceDescriptor(img);
           if (!result) {
             setStatusMessage({ type: 'error', text: 'No face found in this image. Please upload a clear, well-lit portrait photo.' });
+            return;
+          }
+          if (result.error) {
+            setStatusMessage({ type: 'error', text: result.message || 'Image quality insufficient for face recognition.' });
             return;
           }
 
